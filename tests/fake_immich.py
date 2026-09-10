@@ -14,6 +14,10 @@ from PIL import Image
 
 API_KEY = "test-api-key"
 
+# A key issued without `user.read` or `tag.read`, the way Immich lets you do.
+RESTRICTED_KEY = "restricted-api-key"
+RESTRICTED_DENIES = {"user.read", "tag.read"}
+
 
 def make_image(width: int, height: int, colour=(200, 120, 60)) -> bytes:
     image = Image.new("RGB", (width, height), colour)
@@ -74,13 +78,15 @@ class FakeImmich:
         app = FastAPI()
         fake = self
 
-        def auth(x_api_key: Optional[str]) -> None:
-            if x_api_key != API_KEY:
+        def auth(x_api_key: Optional[str], permission: Optional[str] = None) -> None:
+            if x_api_key not in (API_KEY, RESTRICTED_KEY):
                 raise HTTPException(401, "invalid api key")
+            if x_api_key == RESTRICTED_KEY and permission in RESTRICTED_DENIES:
+                raise HTTPException(403, "Missing required permission: %s" % permission)
 
         @app.get("/api/users/me")
         def me(x_api_key: Optional[str] = Header(default=None)):
-            auth(x_api_key)
+            auth(x_api_key, "user.read")
             return {"id": "user-1", "email": "test@example.com", "name": "Test User"}
 
         @app.get("/api/server/version")
@@ -130,7 +136,7 @@ class FakeImmich:
 
         @app.get("/api/tags")
         def tags(x_api_key: Optional[str] = Header(default=None)):
-            auth(x_api_key)
+            auth(x_api_key, "tag.read")
             return [
                 {**tag, "createdAt": "2026-01-01T00:00:00.000Z", "updatedAt": "2026-01-01T00:00:00.000Z"}
                 for tag in fake.tags.values()

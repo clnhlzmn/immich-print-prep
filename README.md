@@ -65,9 +65,26 @@ docker compose up -d
 
 Then open <http://localhost:8000>, sign in as `colin` (any password — the first
 sign-in claims the account), choose a password, and paste an Immich API key when
-the settings panel opens. Immich creates keys under **Account Settings → API
-Keys**; the key needs read access, plus album/tag write access if you want the
-"record the set in Immich" options.
+the settings panel opens.
+
+### API key permissions
+
+Immich creates keys under **Account Settings → API Keys**, with per-key
+permissions. This app needs:
+
+| Permission | Why |
+| --- | --- |
+| `album.read` | List albums and their contents |
+| `asset.read` | Search, and browse the timeline |
+| `asset.view` | Thumbnails and the preview each proof is rendered from |
+| `asset.download` | Fetch the originals that go into the zip |
+| `tag.read` | *(optional)* browse by tag |
+| `album.create`, `albumAsset.create` | *(optional)* record a download as a new album |
+| `tag.create`, `tag.asset` | *(optional)* tag what you downloaded |
+
+Note that `user.read` is **not** required — the app never needs to read your
+Immich profile, and a key saves fine without it (the settings panel just cannot
+show which account it belongs to).
 
 ## Configuration
 

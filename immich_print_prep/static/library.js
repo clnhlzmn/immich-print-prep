@@ -317,7 +317,9 @@ async function addEverything() {
 
 function showError(error) {
     clear(content).append(el("div", { class: "empty" }, describe(error)));
-    if (error instanceof ApiError && error.status === 409) {
+    if (error instanceof ApiError && (error.status === 409 || error.status === 403)) {
+        // 409: no key stored. 403: the key lacks a permission - the settings
+        // panel lists which ones Immich needs to grant.
         content.append(el("div", { class: "row", style: { justifyContent: "center" } },
             el("button", { class: "btn primary", onClick: () => $("#btn-settings").click() }, "Open settings"),
         ));

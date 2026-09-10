@@ -16,10 +16,13 @@ THUMB_SIZES = ("thumbnail", "preview")
 
 
 def _fail(exc: ImmichError) -> HTTPException:
-    code = status.HTTP_502_BAD_GATEWAY
-    if exc.is_auth_error:
-        code = status.HTTP_409_CONFLICT  # the UI reopens the API key panel
-    return HTTPException(code, exc.message)
+    if exc.status == 401:
+        # The key is wrong or gone: send the user back to the settings panel.
+        return HTTPException(status.HTTP_409_CONFLICT, exc.message)
+    if exc.status == 403:
+        # The key works but lacks a permission; the message says which.
+        return HTTPException(status.HTTP_403_FORBIDDEN, exc.message)
+    return HTTPException(status.HTTP_502_BAD_GATEWAY, exc.message)
 
 
 @router.get("/albums")

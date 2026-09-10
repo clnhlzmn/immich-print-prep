@@ -14,6 +14,11 @@ import httpx
 
 USER_AGENT = "immich-print-prep"
 
+# Immich API keys carry granular permissions. These are the ones this app needs;
+# the last four are only used by the optional "record the set in Immich" step.
+REQUIRED_PERMISSIONS = ("album.read", "asset.read", "asset.view", "asset.download")
+OPTIONAL_PERMISSIONS = ("tag.read", "album.create", "albumAsset.create", "tag.create", "tag.asset")
+
 
 class ImmichError(Exception):
     """An API call failed."""
@@ -101,7 +106,17 @@ class ImmichClient:
     # ---------- identity ----------
 
     async def me(self) -> Dict[str, Any]:
+        """The signed-in Immich account. Needs the `user.read` permission."""
         return await self._json("GET", "/users/me")
+
+    async def verify_access(self) -> None:
+        """Check a key by doing something the app actually does.
+
+        Listing albums needs `album.read`, which any usable key must grant.
+        Deliberately not `/users/me`: that needs `user.read`, which this app has
+        no other reason to ask for, and keys are often issued without it.
+        """
+        await self._json("GET", "/albums")
 
     async def server_version(self) -> str:
         try:
@@ -290,7 +305,10 @@ def _error_message(response: httpx.Response) -> str:
     if response.status_code == 401:
         return "Immich rejected the API key (401)"
     if response.status_code == 403:
-        return "Immich denied access to that resource (403)"
+        return (
+            "Immich denied access (403) - the API key is missing a permission"
+            " for this action%s" % (": " + detail if detail else "")
+        )
     return "Immich request failed (%d)%s" % (
         response.status_code, ": " + detail if detail else ""
     )

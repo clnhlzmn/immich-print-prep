@@ -124,10 +124,12 @@ async def add_from_source(
         else:
             raise HTTPException(status.HTTP_400_BAD_REQUEST, "nothing to add")
     except ImmichError as exc:
-        raise HTTPException(
-            status.HTTP_409_CONFLICT if exc.is_auth_error else status.HTTP_502_BAD_GATEWAY,
-            exc.message,
-        ) from exc
+        code = status.HTTP_502_BAD_GATEWAY
+        if exc.status == 401:
+            code = status.HTTP_409_CONFLICT
+        elif exc.status == 403:
+            code = status.HTTP_403_FORBIDDEN
+        raise HTTPException(code, exc.message) from exc
 
     assets = [asset for asset in assets if (asset.get("type") or "IMAGE") == "IMAGE"]
     existing = set(ctx.db.selection_ids(username))

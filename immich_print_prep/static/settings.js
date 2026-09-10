@@ -54,8 +54,9 @@ export async function openSettings() {
         statusLine.textContent = "Checking the Immich connection…";
         try {
             const status = await api.immichStatus();
+            const who = status.user && (status.user.email || status.user.name);
             statusLine.textContent = status.connected
-                ? `Connected to ${me.immich_url} as ${status.user.email || status.user.name} (Immich ${status.version}).`
+                ? `Connected to ${me.immich_url}${who ? ` as ${who}` : ""} (Immich ${status.version}).`
                 : `Not connected: ${status.reason}.`;
             statusLine.style.color = status.connected ? "var(--ok)" : "var(--danger)";
         } catch (error) {
@@ -141,6 +142,13 @@ export async function openSettings() {
                 statusLine,
                 el("p", { class: "small muted", style: { margin: "0" } },
                     "Create a key in Immich under Account Settings → API Keys. It is stored encrypted and never sent to your browser.",
+                ),
+                el("p", { class: "small muted", style: { margin: "0" } },
+                    "The key needs these permissions: ",
+                    el("code", {}, "album.read, asset.read, asset.view, asset.download"),
+                    ". Add ", el("code", {}, "tag.read"), " to browse by tag, and ",
+                    el("code", {}, "album.create, albumAsset.create, tag.create, tag.asset"),
+                    " to record downloads back in Immich.",
                 ),
                 el("div", { class: "row" }, apiKeyInput, saveKey, clearKey),
             ),

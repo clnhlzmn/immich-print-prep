@@ -9,7 +9,7 @@ import zipfile
 import pytest
 from PIL import Image
 
-from fake_immich import API_KEY
+from fake_immich import API_KEY, RESTRICTED_KEY
 
 
 @pytest.fixture
@@ -248,3 +248,29 @@ def test_removing_the_api_key_takes_effect_immediately(signed_in, library):
     # Putting it back works without a restart.
     signed_in.put("/api/settings", json={"api_key": API_KEY})
     assert signed_in.get("/api/albums").status_code == 200
+
+
+def test_a_key_without_user_read_is_still_accepted(signed_in, library, immich):
+    """Immich keys carry granular permissions; `user.read` is not one we need."""
+    saved = signed_in.put("/api/settings", json={"api_key": RESTRICTED_KEY})
+    assert saved.status_code == 200, saved.text
+    assert saved.json()["has_api_key"] is True
+
+    status = signed_in.get("/api/immich/status").json()
+    assert status["connected"] is True
+    assert status["user"]["email"] is None      # cannot name the account, and that is fine
+    assert "album.read" in status["required_permissions"]
+
+    assert signed_in.get("/api/albums").status_code == 200
+    assert signed_in.get("/api/assets").status_code == 200
+
+    # A permission it really is missing reports as 403, not as a missing key.
+    denied = signed_in.get("/api/tags")
+    assert denied.status_code == 403
+    assert "permission" in denied.json()["detail"]
+
+
+def test_a_key_immich_rejects_outright_is_not_saved(signed_in):
+    refused = signed_in.put("/api/settings", json={"api_key": "not-a-real-key"})
+    assert refused.status_code == 400
+    assert signed_in.get("/api/me").json()["has_api_key"] is True   # the old key is untouched

@@ -10,7 +10,7 @@ from pydantic import BaseModel, Field
 from ..context import AppContext, Prefs
 from ..deps import current_user, get_ctx, require_json
 from ..imaging import Adjustments, ImagingError
-from ..immich import ImmichClient, ImmichError
+from ..immich import REQUIRED_PERMISSIONS, ImmichClient, ImmichError
 
 router = APIRouter(prefix="/api", tags=["settings"])
 
@@ -74,11 +74,17 @@ async def update_settings(
         # Refuse a key Immich will not accept rather than storing a dud.
         client = ImmichClient(ctx.config.immich_url, api_key, verify_tls=ctx.config.verify_tls)
         try:
-            await client.me()
+            await client.verify_access()
         except ImmichError as exc:
+            detail = exc.message
+            if exc.status == 403:
+                detail = (
+                    "That key cannot list albums. Give it at least %s in Immich."
+                    % ", ".join(REQUIRED_PERMISSIONS)
+                )
             raise HTTPException(
                 status.HTTP_400_BAD_REQUEST if exc.is_auth_error else status.HTTP_502_BAD_GATEWAY,
-                exc.message,
+                detail,
             ) from exc
         finally:
             await client.aclose()
@@ -102,17 +108,20 @@ async def immich_status(
     if client is None:
         return {"connected": False, "reason": "no API key configured"}
     try:
-        user = await client.me()
-        version = await client.server_version()
-        return {
-            "connected": True,
-            "user": {
-                "email": user.get("email"),
-                "name": user.get("name"),
-                "id": user.get("id"),
-            },
-            "version": version,
-            "immich_url": ctx.config.immich_url,
-        }
+        await client.verify_access()
     except ImmichError as exc:
         return {"connected": False, "reason": exc.message}
+
+    # Naming the account is a nicety; a key without `user.read` is still fine.
+    user = {}
+    try:
+        user = await client.me()
+    except ImmichError:
+        user = {}
+    return {
+        "connected": True,
+        "user": {"email": user.get("email"), "name": user.get("name"), "id": user.get("id")},
+        "version": await client.server_version(),
+        "immich_url": ctx.config.immich_url,
+        "required_permissions": list(REQUIRED_PERMISSIONS),
+    }
