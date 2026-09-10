@@ -1,0 +1,60 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "immich-print-prep"
+version = "0.1.0"
+description = "Web UI for selecting photos from an Immich instance and preparing them for print ordering."
+readme = "README.md"
+license = { text = "MIT" }
+authors = [{ name = "Colin Holzman" }]
+requires-python = ">=3.9"
+dependencies = [
+    "fastapi>=0.110,<1",
+    "uvicorn>=0.27,<1",
+    "httpx>=0.27,<1",
+    "pillow>=10.2",
+    "pyyaml>=6,<7",
+    "cryptography>=42",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8",
+    "ruff>=0.6",
+]
+
+[project.urls]
+Homepage = "https://github.com/clnhlzmn/immich-print-prep"
+
+[project.scripts]
+immich-print-prep = "immich_print_prep.__main__:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["immich_print_prep"]
+
+# The image runs 3.12 but the code stays 3.9-compatible so it can be developed
+# and tested against a stock system python.
+[tool.ruff]
+line-length = 100
+target-version = "py39"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "UP", "B"]
+# `from __future__ import annotations` makes ruff think PEP 585/604 syntax is
+# free, but FastAPI and pydantic resolve annotations at runtime, where
+# `list[str]` / `X | None` still break on 3.9. Percent formatting is deliberate.
+# B008 is how FastAPI declares dependencies.
+ignore = ["UP006", "UP007", "UP035", "UP045", "UP031", "B008"]
+
+[tool.ruff.lint.per-file-ignores]
+# Tests read better with the request and its assertion on one line.
+"tests/*" = ["E501"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["immich_print_prep"]
+known-local-folder = ["fake_immich"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

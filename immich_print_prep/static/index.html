@@ -1,0 +1,76 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Immich Print Prep</title>
+<link rel="icon" href="/static/favicon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="/static/styles.css">
+</head>
+<body>
+
+<header class="top">
+  <h1 id="site-title">Immich Print Prep</h1>
+  <div class="tabs" role="tablist">
+    <button role="tab" id="tab-library" aria-selected="true" aria-controls="view-library">Library</button>
+    <button role="tab" id="tab-set" aria-selected="false" aria-controls="view-set">
+      Print set <span class="pill" id="set-count">0</span>
+    </button>
+  </div>
+  <span class="spacer"></span>
+  <span class="muted small" id="who"></span>
+  <button class="btn ghost small" id="btn-settings">Settings</button>
+  <button class="btn ghost small" id="btn-logout">Sign out</button>
+</header>
+
+<main>
+  <section class="view" id="view-library" role="tabpanel">
+    <div class="toolbar">
+      <div class="tabs" id="source-tabs">
+        <button data-source="albums" aria-selected="true">Albums</button>
+        <button data-source="tags" aria-selected="false">Tags</button>
+        <button data-source="timeline" aria-selected="false">Timeline</button>
+        <button data-source="search" aria-selected="false">Search</button>
+      </div>
+      <button class="btn small ghost" id="btn-back" hidden>&larr; Back</button>
+      <span class="muted small" id="crumb"></span>
+      <span class="spacer" style="flex:1"></span>
+      <form class="row" id="search-form" hidden>
+        <input type="search" id="search-input" placeholder="Search photos" size="28">
+        <label class="check small"><input type="checkbox" id="search-smart" checked> Contextual</label>
+        <button class="btn small" type="submit">Search</button>
+      </form>
+    </div>
+
+    <div id="library-content"></div>
+
+    <div class="actionbar" id="library-actions" hidden>
+      <span id="library-status" class="small"></span>
+      <span class="spacer" style="flex:1"></span>
+      <button class="btn small ghost" id="btn-select-all">Select all on screen</button>
+      <button class="btn small ghost" id="btn-select-none">Clear selection</button>
+      <button class="btn small" id="btn-add-everything" hidden>Add everything here</button>
+      <button class="btn primary small" id="btn-add-selected" disabled>Add to print set</button>
+    </div>
+  </section>
+
+  <section class="view" id="view-set" role="tabpanel" hidden>
+    <div class="toolbar" id="set-toolbar"></div>
+    <div id="set-content"></div>
+    <div class="actionbar" id="set-actions" hidden>
+      <span id="set-status" class="small"></span>
+      <span class="spacer" style="flex:1"></span>
+      <button class="btn small danger" id="btn-clear-set">Empty print set</button>
+      <button class="btn primary" id="btn-prepare">Prepare for printing</button>
+    </div>
+  </section>
+</main>
+
+<dialog id="settings-dialog"></dialog>
+<dialog id="editor-dialog"></dialog>
+<dialog id="job-dialog"></dialog>
+<div id="toasts"></div>
+
+<script type="module" src="/static/app.js"></script>
+</body>
+</html>

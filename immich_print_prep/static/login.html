@@ -1,0 +1,104 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Sign in - Immich Print Prep</title>
+<link rel="icon" href="/static/favicon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="/static/styles.css">
+</head>
+<body>
+<div class="centered">
+  <form class="login-card" id="form" autocomplete="on">
+    <h1 id="title">Sign in</h1>
+    <p class="muted small" id="subtitle">Immich Print Prep</p>
+
+    <label class="field" id="username-field">Username
+      <input type="text" id="username" name="username" autocomplete="username" autofocus required>
+    </label>
+
+    <label class="field" id="password-field">Password
+      <input type="password" id="password" name="password" autocomplete="current-password">
+    </label>
+
+    <div id="new-password-fields" hidden>
+      <label class="field">New password
+        <input type="password" id="new-password" autocomplete="new-password" minlength="8">
+      </label>
+      <label class="field" style="margin-top:10px">Confirm new password
+        <input type="password" id="confirm-password" autocomplete="new-password" minlength="8">
+      </label>
+    </div>
+
+    <div class="error-text" id="error" role="alert"></div>
+    <button class="btn primary" type="submit" id="submit">Sign in</button>
+  </form>
+</div>
+
+<script type="module">
+const $ = (id) => document.getElementById(id);
+let mode = "login";          // login | set-password
+let needsInitial = false;
+
+async function post(path, body) {
+    const response = await fetch(path, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+    });
+    let payload = {};
+    try { payload = await response.json(); } catch (e) { /* empty body */ }
+    if (!response.ok) throw new Error(payload.detail || `Request failed (${response.status})`);
+    return payload;
+}
+
+function toSetPasswordMode(username, needsInitialPassword) {
+    mode = "set-password";
+    needsInitial = needsInitialPassword;
+    $("title").textContent = "Choose a password";
+    $("subtitle").textContent = needsInitialPassword
+        ? `First sign-in for ${username}. Enter the initial password from the server config, then pick your own.`
+        : `First sign-in for ${username}. Pick a password for this account.`;
+    $("username").value = username;
+    $("username").readOnly = true;
+    $("password-field").hidden = !needsInitialPassword;
+    $("password").value = "";
+    $("password").required = needsInitialPassword;
+    $("new-password-fields").hidden = false;
+    $("submit").textContent = "Set password and sign in";
+    ($("password-field").hidden ? $("new-password") : $("password")).focus();
+}
+
+$("form").addEventListener("submit", async (event) => {
+    event.preventDefault();
+    $("error").textContent = "";
+    $("submit").disabled = true;
+    try {
+        const username = $("username").value.trim();
+        if (mode === "login") {
+            const result = await post("/api/auth/login", { username, password: $("password").value });
+            if (result.status === "password_not_set") {
+                toSetPasswordMode(result.username, result.needs_initial_password);
+                return;
+            }
+            window.location.href = "/";
+        } else {
+            const next = $("new-password").value;
+            if (next !== $("confirm-password").value) throw new Error("The two passwords do not match.");
+            if (next.length < 8) throw new Error("Password must be at least 8 characters.");
+            await post("/api/auth/set-password", {
+                username,
+                current_password: needsInitial ? $("password").value : "",
+                new_password: next,
+            });
+            window.location.href = "/";
+        }
+    } catch (error) {
+        $("error").textContent = error.message;
+    } finally {
+        $("submit").disabled = false;
+    }
+});
+</script>
+</body>
+</html>

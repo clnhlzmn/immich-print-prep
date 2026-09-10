@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="UTF-8"?><XnView_script version="1.0" name="convert-for-print-8x10">
+    <Rotate byexif="false" angle="-90" smooth="false" crop="false" color="#ffffff" orient="2"/>
+    <Aspect_Pad mode="0" color="#ffffff" ratio="0.8"/>
+    <Set_DPI x="300" y="300" keep="true"/>
+    <Resize mode="0" width="8" height="10" unit="2" ratio="true" orientation="false" enlarge="0" resample="7" gamma_correct="false"/>
+    <Output folder="/Users/colinholzman/Desktop/print" filename="{Filename}_result" case="0" startIndex="1" format="JPEG">
+        <Options overwrite="1" orgDate="false" keepMeta="false" keepICC="false" keepFolder="false" checkFilesize="false" keepParentFolder="false" keepExtension="false" delOrg="false" multipage="false" allPages="false" openExplorer="false" beep="true" openBrowser="false" clearItems="false"/>
+        <JPEG useJPEGli="false" quality="95" progressive="false" optimizeHuffman="true" rebuildThumb="false" orgQuality="false" DCTMethod="2" subSampling="2" smoothFactor="0"/>
+    </Output>
+</XnView_script>

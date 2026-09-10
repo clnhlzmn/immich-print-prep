@@ -1,0 +1,53 @@
+# immich-print-prep server configuration.
+#
+# Mount this file into the container at /config/config.yaml (or point IPP_CONFIG
+# somewhere else). Everything except immich_url and users is optional.
+
+# The Immich site root - not the /api path. Reachable from the container.
+immich_url: "http://immich-server:2283"
+
+# Who may sign in. There is no sign-up flow: an account exists because it is
+# listed here. The first time someone signs in, they choose their own password.
+#
+#   - a bare name  -> the first sign-in claims the account with any password,
+#                     so claim it promptly (or set allow_blank_first_login: false)
+#   - initial_password -> that password is required to claim the account, and
+#                     must be replaced with a real one straight away
+users:
+  - colin
+  - username: alice
+    initial_password: "change-me-on-first-login"
+
+# Refuse to let a bare-name account be claimed without an initial_password.
+# allow_blank_first_login: true
+
+# Signs sessions and encrypts the stored Immich API keys. Left unset, a random
+# key is generated once and kept in <data_dir>/secret.key. Setting it here (or
+# in IPP_SECRET_KEY) means sessions survive a wiped data volume.
+# secret_key: ""
+
+# Where the database, thumbnail cache and prepared zips live.
+# data_dir: "/data"
+
+# How long a browser stays signed in.
+# session_days: 30
+
+# Set to false for an Immich instance with a self-signed certificate.
+# verify_tls: true
+
+# Shown in the header and the browser tab.
+# site_title: "Immich Print Prep"
+
+# Default print settings for every user (each user can override these in the UI).
+# The defaults below reproduce the convert-for-print-8x10 XnView preset: rotate
+# landscape photos 90 degrees counter-clockwise, pad to 8x10 with white, 300 DPI.
+# defaults:
+#   width_in: 8
+#   height_in: 10
+#   dpi: 300
+#   rotate: auto        # auto | none | cw | ccw | 180
+#   fit: pad            # pad | crop
+#   background: "#ffffff"
+#   quality: 95         # JPEG quality
+#   fmt: jpeg           # jpeg | png | tiff
+#   allow_enlarge: true

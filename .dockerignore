@@ -1,0 +1,24 @@
+.git
+.github
+tests
+*.md
+# needed by pyproject.toml (project.readme) during the build
+!README.md
+LICENSE
+.gitignore
+.dockerignore
+Dockerfile
+docker-compose.example.yml
+config.yaml
+data
+__pycache__
+**/__pycache__
+*.pyc
+.pytest_cache
+.ruff_cache
+.venv
+venv
+*.egg-info
+build
+dist
+*.xbs

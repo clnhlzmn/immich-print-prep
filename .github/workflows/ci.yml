@@ -1,0 +1,68 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install (with dev deps)
+        run: pip install .[dev]
+
+      - name: Lint
+        run: ruff check .
+
+      - name: Test
+        run: pytest -q
+
+  docker:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Build image (no push)
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: false
+          load: true
+          tags: immich-print-prep:ci
+
+      - name: Smoke test - no config file fails with a clear message
+        run: |
+          set +e
+          out="$(docker run --rm immich-print-prep:ci 2>&1)"
+          code=$?
+          echo "$out"
+          if [ "$code" -eq 0 ]; then
+            echo "expected non-zero exit, got 0"; exit 1
+          fi
+          echo "$out" | grep -q "config file not found: /config/config.yaml" \
+            || { echo "missing config-not-found message"; exit 1; }
+
+      - name: Smoke test - it serves the sign-in page
+        run: |
+          mkdir -p /tmp/ipp
+          printf 'immich_url: "http://immich:2283"\nusers:\n  - colin\n' > /tmp/ipp/config.yaml
+          docker run -d --name ipp -p 8000:8000 \
+            -v /tmp/ipp/config.yaml:/config/config.yaml:ro \
+            -v /tmp/ipp/data:/data immich-print-prep:ci
+          for i in $(seq 1 30); do
+            curl -fsS http://127.0.0.1:8000/healthz >/dev/null 2>&1 && break
+            sleep 1
+          done
+          curl -fsS http://127.0.0.1:8000/healthz | grep -q '"status":"ok"'
+          curl -fsS -L http://127.0.0.1:8000/ | grep -q "Sign in"
+          docker rm -f ipp
