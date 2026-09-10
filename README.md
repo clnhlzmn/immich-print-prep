@@ -11,9 +11,9 @@
 A small web UI that sits next to your [Immich](https://immich.app) instance:
 pick photos, adjust them for print, and download a zip of print-ready files.
 
-It replaces doing this by hand in XnView. The default conversion is the
-`convert-for-print-8x10.xbs` preset kept in this repo: rotate landscape photos
-90° counter-clockwise, pad to the 8×10 aspect ratio with white, set 300 DPI, and
+It replaces doing this by hand in XnView. The default conversion reproduces the
+`convert-for-print-8x10` XnView preset: rotate landscape photos 90°
+counter-clockwise, pad to the 8×10 aspect ratio with white, set 300 DPI, and
 resize to 8×10 inches as JPEG.
 
 A multi-arch Docker image is published to the GitHub Container Registry (GHCR).

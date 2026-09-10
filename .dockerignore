@@ -21,4 +21,3 @@ venv
 *.egg-info
 build
 dist
-*.xbs
