@@ -62,3 +62,14 @@ def signed_in(client, immich):
     response = client.put("/api/settings", json={"api_key": API_KEY})
     assert response.status_code == 200, response.text
     return client
+
+
+@pytest.fixture
+def ctx_prefs(config):
+    """Prefs built from a v0.1.0 stored default, and from a deliberate choice."""
+    from immich_print_prep.context import Prefs
+
+    return (
+        Prefs({"album_name_template": "print-set-{datetime}"}, config.defaults),
+        Prefs({"album_name_template": "prints/{date}"}, config.defaults),
+    )

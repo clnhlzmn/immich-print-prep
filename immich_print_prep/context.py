@@ -20,11 +20,22 @@ from .security import SecretBox
 # Names that Immich (and file systems) will accept without complaint.
 _UNSAFE_NAME_RE = re.compile(r"[^\w \-.()\[\]{}#@+,']", re.UNICODE)
 
-DEFAULT_ALBUM_TEMPLATE = "print-set-{datetime}"
-DEFAULT_ZIP_TEMPLATE = "print-set-{datetime}"
+DEFAULT_ALBUM_TEMPLATE = "{datetime}-print-set"
+DEFAULT_ZIP_TEMPLATE = "{datetime}-print-set"
+
+# v0.1.0 shipped the date last. Anyone still carrying that stored default gets
+# the new one; a template they actually chose is left alone. Delete this once
+# no v0.1.0 database is in use.
+LEGACY_TEMPLATES = frozenset({"print-set-{datetime}"})
 
 # How much of the thumbnail cache to keep on disk.
 CACHE_LIMIT_BYTES = 512 * 1024 * 1024
+
+
+def _template(stored: Any, default: str) -> str:
+    """The stored template, unless it is unset or a superseded default."""
+    value = str(stored or "").strip()
+    return default if not value or value in LEGACY_TEMPLATES else value
 
 
 class Prefs:
@@ -33,10 +44,10 @@ class Prefs:
     def __init__(self, raw: Optional[Dict[str, Any]], server_defaults: Adjustments):
         raw = raw or {}
         self.create_album = bool(raw.get("create_album", False))
-        self.album_name_template = str(raw.get("album_name_template") or DEFAULT_ALBUM_TEMPLATE)
+        self.album_name_template = _template(raw.get("album_name_template"), DEFAULT_ALBUM_TEMPLATE)
         self.create_tag = bool(raw.get("create_tag", False))
-        self.tag_name_template = str(raw.get("tag_name_template") or DEFAULT_ALBUM_TEMPLATE)
-        self.zip_name_template = str(raw.get("zip_name_template") or DEFAULT_ZIP_TEMPLATE)
+        self.tag_name_template = _template(raw.get("tag_name_template"), DEFAULT_ALBUM_TEMPLATE)
+        self.zip_name_template = _template(raw.get("zip_name_template"), DEFAULT_ZIP_TEMPLATE)
         try:
             self.defaults = Adjustments.from_dict(raw.get("defaults"), base=server_defaults)
         except ImagingError:

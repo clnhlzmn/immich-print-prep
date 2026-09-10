@@ -175,7 +175,7 @@ def test_full_walkthrough(site, page):
         page.click("#btn-prepare")
         page.wait_for_selector("text=Download zip", timeout=60000)
     download = download_info.value
-    assert download.suggested_filename.startswith("print-set-")
+    assert download.suggested_filename.endswith("-print-set.zip")
 
     with open(download.path(), "rb") as handle:
         with zipfile.ZipFile(io.BytesIO(handle.read())) as archive:

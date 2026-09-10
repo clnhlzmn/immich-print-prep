@@ -35,7 +35,7 @@ A multi-arch Docker image is published to the GitHub Container Registry (GHCR).
 - **Download** a zip. The server pulls the originals from Immich, converts them,
   and streams the result, with a progress bar and a per-photo manifest.
 - **Keep a record.** Optionally create an Immich album and/or tag named
-  `print-set-<datetime>` holding everything you just downloaded.
+  `<datetime>-print-set` holding everything you just downloaded.
 
 ## Quick start
 

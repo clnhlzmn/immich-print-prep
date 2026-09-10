@@ -156,8 +156,7 @@ def test_prepare_download_and_record_in_immich(signed_in, library, immich):
     album_id = next(iter(immich.albums))
     signed_in.post("/api/selection/add-source", json={"album_id": album_id})
     signed_in.put("/api/settings", json={
-        "create_album": True,
-        "album_name_template": "print-set-{datetime}",
+        "create_album": True,          # leaves album_name_template at its default
         "create_tag": True,
         "tag_name_template": "printed-{date}",
     })
@@ -185,7 +184,10 @@ def test_prepare_download_and_record_in_immich(signed_in, library, immich):
         assert "8x10 in @ 300 dpi" in manifest
 
     # The set was recorded back in Immich.
-    new_albums = [name for name in (a["albumName"] for a in immich.albums.values()) if name.startswith("print-set-")]
+    new_albums = [
+        name for name in (a["albumName"] for a in immich.albums.values())
+        if name.endswith("-print-set")
+    ]
     assert len(new_albums) == 1
     assert len(immich.album_assets[[k for k, v in immich.albums.items() if v["albumName"] == new_albums[0]][0]]) == 2
     assert any(tag["value"].startswith("printed-") for tag in immich.tags.values())
@@ -274,3 +276,17 @@ def test_a_key_immich_rejects_outright_is_not_saved(signed_in):
     refused = signed_in.put("/api/settings", json={"api_key": "not-a-real-key"})
     assert refused.status_code == 400
     assert signed_in.get("/api/me").json()["has_api_key"] is True   # the old key is untouched
+
+
+def test_default_set_names_lead_with_the_date(signed_in):
+    """`<datetime>-print-set`, so sets sort chronologically wherever they land."""
+    prefs = signed_in.get("/api/me").json()["prefs"]
+    assert prefs["album_name_template"] == "{datetime}-print-set"
+    assert prefs["tag_name_template"] == "{datetime}-print-set"
+    assert prefs["zip_name_template"] == "{datetime}-print-set"
+
+
+def test_the_v0_1_0_default_is_replaced_but_a_chosen_name_is_kept(signed_in, ctx_prefs):
+    stale, chosen = ctx_prefs
+    assert stale.album_name_template == "{datetime}-print-set"
+    assert chosen.album_name_template == "prints/{date}"
