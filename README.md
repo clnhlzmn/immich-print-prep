@@ -194,6 +194,10 @@ That publishes `ghcr.io/clnhlzmn/immich-print-prep:0.1.0`, `:0.1`, and `:latest`
 - Prepared zips are kept for 12 hours, then deleted. The thumbnail cache is
   capped at 512 MB and trimmed least-recently-used first.
 - Nothing is ever written to Immich except the optional album and tag.
+- Immich lets you add a partner's photos to **your album**, but not tag them:
+  tagging is owner-only on their side. A print set mixing your photos with a
+  partner's will file completely into an album, while the tag covers only your
+  own — the download dialog says so when it happens.
 - Put it behind your usual reverse proxy for TLS; the app trusts
   `X-Forwarded-Proto` when deciding whether to mark cookies `Secure`.
 

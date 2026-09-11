@@ -363,6 +363,8 @@ def test_a_tag_immich_refuses_to_fill_is_reported(signed_in, library, immich):
     assert job["detail"]["tag"]["reasons"] == ["no_permission"]
     assert "added none of the 2 photos" in job["detail"]["record_error"]
     assert "no_permission" in job["detail"]["record_error"]
+    # Immich tags are owner-only, so say that rather than leaving them guessing.
+    assert "only lets you tag photos you own" in job["detail"]["record_error"]
 
 
 def test_a_partly_filled_tag_is_reported(signed_in, library, immich):

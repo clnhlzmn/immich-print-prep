@@ -157,6 +157,8 @@ export async function openSettings() {
                 el("label", { class: "check" }, createAlbum, "Add the downloaded photos to a new Immich album"),
                 el("label", { class: "field" }, "Album name", albumTemplate),
                 el("label", { class: "check" }, createTag, "Tag the downloaded photos in Immich"),
+                el("p", { class: "small muted", style: { margin: 0 } },
+                    "Immich only allows tagging photos you own; a partner's photos can go in the album but not the tag."),
                 el("label", { class: "field" }, "Tag name", tagTemplate),
                 el("label", { class: "field" }, "Zip file name", zipTemplate),
                 el("p", { class: "small muted", style: { margin: 0 } },

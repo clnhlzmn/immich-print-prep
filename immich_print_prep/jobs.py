@@ -185,25 +185,40 @@ async def run_prepare_job(
     )
 
 
+# Immich decides these two differently: tagging an asset needs AssetUpdate,
+# which is owner-only, while adding one to an album needs AssetShare, which also
+# covers a partner's photos. So a partner's photo can be filed in your album but
+# never tagged by you, and that is worth explaining rather than reporting as a
+# bare "no_permission".
+_OWNERSHIP_HINT = {
+    "tag": "Immich only lets you tag photos you own - a partner's photos cannot be tagged,"
+           " though the album option does accept them.",
+    "album": "Immich only accepts photos you own or that a partner shares with you.",
+}
+
+
 def _bulk_problem(kind: str, name: str, result: BulkResult, expected: int) -> List[str]:
     """Turn Immich's per-asset rejections into something worth reading.
 
     These endpoints return 200 whether or not they took the photos, so silence
-    here would mean an empty album or tag with nothing to explain it. The usual
-    reason is `no_permission`: photos the key can see but not modify, or a key
-    without the album/tag write permissions.
+    here would mean an empty album or tag with nothing to explain it.
     """
     if result.added >= expected and not result.failed:
         return []
+    reasons = ", ".join(result.reasons) or "no reason given"
     if result.added == 0:
-        return [
+        problems = [
             "Immich created the %s %r but added none of the %d photos (%s)."
-            % (kind, name, expected, ", ".join(result.reasons) or "no reason given")
+            % (kind, name, expected, reasons)
         ]
-    return [
-        "Immich added %d of %d photos to the %s %r (%s)."
-        % (result.added, expected, kind, name, ", ".join(result.reasons) or "no reason given")
-    ]
+    else:
+        problems = [
+            "Immich added %d of %d photos to the %s %r (%s)."
+            % (result.added, expected, kind, name, reasons)
+        ]
+    if "no_permission" in result.reasons and kind in _OWNERSHIP_HINT:
+        problems.append(_OWNERSHIP_HINT[kind])
+    return problems
 
 
 async def _ensure_tag(client: ImmichClient, name: str) -> Dict[str, Any]:
