@@ -11,10 +11,9 @@
 A small web UI that sits next to your [Immich](https://immich.app) instance:
 pick photos, adjust them for print, and download a zip of print-ready files.
 
-It replaces doing this by hand in XnView. The default conversion reproduces the
-`convert-for-print-8x10` XnView preset: rotate landscape photos 90°
-counter-clockwise, pad to the 8×10 aspect ratio with white, set 300 DPI, and
-resize to 8×10 inches as JPEG.
+It replaces doing this by hand in a desktop image editor. The default
+conversion rotates landscape photos 90° counter-clockwise, pads to the 8×10
+aspect ratio with white, sets 300 DPI, and resizes to 8×10 inches as JPEG.
 
 A multi-arch Docker image is published to the GitHub Container Registry (GHCR).
 
@@ -101,7 +100,7 @@ The config file is the only place accounts are defined. See
 | `session_days` | `30` | How long a sign-in lasts. |
 | `verify_tls` | `true` | Set `false` for an Immich instance with a self-signed certificate. |
 | `site_title` | `Immich Print Prep` | Shown in the header and tab. |
-| `defaults` | 8×10 preset | Server-wide default print settings; each user can override them in the UI. |
+| `defaults` | 8×10 at 300 DPI | Server-wide default print settings; each user can override them in the UI. |
 
 `IPP_CONFIG`, `IPP_DATA_DIR`, `IPP_IMMICH_URL`, `IPP_SECRET_KEY`, `IPP_HOST`,
 `IPP_PORT` and `IPP_LOG_LEVEL` override the file. `python -m immich_print_prep
@@ -127,7 +126,7 @@ that user's row from `users` in `<data_dir>/print-prep.db`, or give them an
 
 ## The print pipeline
 
-Each photo is processed in this order, matching the XnView preset:
+Each photo is processed in this order:
 
 1. Apply the EXIF orientation, convert to sRGB, and drop the source profile and
    metadata.

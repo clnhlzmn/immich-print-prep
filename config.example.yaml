@@ -39,8 +39,8 @@ users:
 # site_title: "Immich Print Prep"
 
 # Default print settings for every user (each user can override these in the UI).
-# The defaults below reproduce the convert-for-print-8x10 XnView preset: rotate
-# landscape photos 90 degrees counter-clockwise, pad to 8x10 with white, 300 DPI.
+# The defaults below rotate landscape photos 90 degrees counter-clockwise, pad
+# to 8x10 with white, and set 300 DPI.
 # defaults:
 #   width_in: 8
 #   height_in: 10

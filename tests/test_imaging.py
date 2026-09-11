@@ -1,4 +1,4 @@
-"""The conversion pipeline: the part that has to match the XnView preset."""
+"""The conversion pipeline: the part that decides what gets printed."""
 
 from __future__ import annotations
 

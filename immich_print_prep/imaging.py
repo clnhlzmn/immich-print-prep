@@ -1,7 +1,6 @@
 """Image preparation pipeline.
 
-This reproduces (and generalises) the XnView `convert-for-print-8x10.xbs`
-preset that this project replaces:
+The default conversion is:
 
     rotate -90 for landscape images -> pad to the 8x10 aspect ratio with white
     -> 300 DPI -> resize to 8x10 inches -> JPEG q95, no metadata
@@ -192,7 +191,7 @@ def parse_color(value: Any, as_hex: bool = False):
 def _to_srgb_rgb(image: Image.Image, background: Tuple[int, int, int]) -> Image.Image:
     """Flatten onto the background and land in sRGB, dropping the input profile.
 
-    The XnView preset discarded the ICC profile outright; converting first keeps
+    The profile is not carried into the output, so converting first keeps
     wide-gamut sources (Display P3 phone photos) from shifting when it is
     dropped.
     """
@@ -220,7 +219,7 @@ def _to_srgb_rgb(image: Image.Image, background: Tuple[int, int, int]) -> Image.
 
 def _apply_rotation(image: Image.Image, rotate: str) -> Image.Image:
     if rotate == "auto":
-        # The preset's "orientation: landscape only" rotate by -90 degrees.
+        # Landscape only, rotated by -90 degrees; portrait is left as shot.
         return image.transpose(Image.Transpose.ROTATE_90) if image.width > image.height else image
     if rotate == "ccw":
         return image.transpose(Image.Transpose.ROTATE_90)
