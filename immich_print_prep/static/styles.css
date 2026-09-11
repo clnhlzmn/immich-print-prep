@@ -244,6 +244,22 @@ label.check { display: flex; align-items: center; gap: 8px; font-size: 14px; col
 
 /* ---------- print set ---------- */
 
+/* "Record this set in Immich": sits in the sticky action bar, next to the
+   Prepare button it applies to, as its own full-width row. */
+.record-options {
+    flex: 1 1 100%;
+    display: grid;
+    gap: 6px;
+    padding-bottom: 10px;
+    border-bottom: 1px solid var(--border);
+}
+.record-options .record-head { display: flex; align-items: center; gap: 8px; }
+.record-row { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; }
+.record-row label.check { min-width: 175px; }
+.record-row input[type="text"] { width: min(28ch, 100%); }
+.record-row input[type="text"]:disabled { opacity: 0.45; }
+.record-row .name-preview { font-variant-numeric: tabular-nums; }
+
 .set-grid {
     display: grid;
     grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));

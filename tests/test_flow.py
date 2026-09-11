@@ -395,3 +395,47 @@ def test_a_key_without_tag_asset_permission_is_reported(signed_in, library, immi
     assert job["detail"]["failures"] == []
     assert "permission" in job["detail"]["record_error"]
     assert "tag" not in job["detail"]
+
+
+def test_a_print_set_can_override_the_saved_album_and_tag_choices(signed_in, library, immich):
+    """Per-set choices ride along with Prepare and leave the saved defaults alone."""
+    signed_in.post("/api/selection/add-source", json={"album_id": next(iter(immich.albums))})
+    signed_in.put("/api/settings", json={"create_album": False, "create_tag": True})
+
+    job = signed_in.post("/api/prepare", json={
+        "create_album": True,
+        "album_name": "Grandma's prints {date}",
+        "create_tag": False,
+    }).json()
+    job = wait_for_job(signed_in, job["id"])
+    assert job["status"] == "done"
+
+    album = job["detail"]["album"]
+    assert album["name"].startswith("Grandma's prints 20")
+    assert album["added"] == 2
+    assert album["name"] in [a["albumName"] for a in immich.albums.values()]
+    assert "tag" not in job["detail"]                       # switched off for this set only
+
+    prefs = signed_in.get("/api/me").json()["prefs"]
+    assert prefs["create_album"] is False
+    assert prefs["create_tag"] is True
+    assert prefs["album_name_template"] == "{datetime}-print-set"
+
+
+def test_a_blank_per_set_name_falls_back_to_the_saved_template(signed_in, library, immich):
+    signed_in.post("/api/selection/add-source", json={"album_id": next(iter(immich.albums))})
+    job = signed_in.post("/api/prepare", json={"create_album": True, "album_name": "   "}).json()
+    job = wait_for_job(signed_in, job["id"])
+    assert job["detail"]["album"]["name"].endswith("-print-set")
+
+
+def test_leaving_the_choices_out_uses_the_saved_settings(signed_in, library, immich):
+    signed_in.post("/api/selection/add-source", json={"album_id": next(iter(immich.albums))})
+    signed_in.put("/api/settings", json={"create_album": True, "album_name_template": "saved-{date}"})
+    job = wait_for_job(signed_in, signed_in.post("/api/prepare", json={}).json()["id"])
+    assert job["detail"]["album"]["name"].startswith("saved-20")
+
+
+def test_per_set_names_are_length_checked(signed_in, library):
+    signed_in.post("/api/selection/add", json={"assets": [{"id": library[0]}]})
+    assert signed_in.post("/api/prepare", json={"album_name": "x" * 500}).status_code == 422

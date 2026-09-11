@@ -8,6 +8,12 @@ import { store } from "./store.js";
 import { $, clear, confirmDialog, debounce, el, plural, toast } from "./ui.js";
 
 let toolbar, content, actions;
+
+// This set's "record in Immich" choices. Pre-filled from the saved settings and
+// following them until the user edits something here; sent with Prepare.
+let record = null;
+let recordEdited = false;
+let recordUi = null;
 // Remembers the bulk toolbar's state across re-renders of the print set.
 let toolbarValues = null;
 
@@ -25,18 +31,21 @@ export function mount() {
         );
         if (!ok) return;
         await api.clearSelection();
+        recordEdited = false;       // a new set starts from the saved settings again
         await store.refreshSelection();
         toast("Print set emptied.", "ok");
     });
     $("#btn-prepare").addEventListener("click", startPrepare);
 
     store.onSelection(render);
+    store.onMe(syncRecord);
 }
 
 export function render() {
     const selection = store.selection;
     renderToolbar(selection);
     actions.hidden = selection.count === 0;
+    syncRecord();
     $("#set-status").textContent = selection.count
         ? `${plural(selection.count, "photo", "photos")} ready`
         : "";
@@ -289,7 +298,7 @@ async function startPrepare() {
     dialog.showModal();
 
     try {
-        job = await api.prepare();
+        job = await api.prepare(null, record ? { ...record } : {});
     } catch (error) {
         message.textContent = describe(error);
         cancelButton.hidden = true;
@@ -338,6 +347,89 @@ async function startPrepare() {
     } else if (job) {
         message.textContent = `Failed: ${job.message || "unknown error"}`;
     }
+}
+
+// ---------- recording the set in Immich ----------
+
+function recordDefaults() {
+    const prefs = (store.me && store.me.prefs) || {};
+    return {
+        create_album: Boolean(prefs.create_album),
+        album_name: prefs.album_name_template || "{datetime}-print-set",
+        create_tag: Boolean(prefs.create_tag),
+        tag_name: prefs.tag_name_template || "{datetime}-print-set",
+    };
+}
+
+function buildRecordOptions() {
+    const option = (label, checkKey, nameKey, hint) => {
+        const check = el("input", {
+            type: "checkbox",
+            onChange: () => { record[checkKey] = check.checked; recordEdited = true; syncRecord(); },
+        });
+        const name = el("input", {
+            type: "text", maxlength: 120, spellcheck: false, "aria-label": `${label} name`,
+            onInput: () => { record[nameKey] = name.value; recordEdited = true; syncRecord(); },
+        });
+        const preview = el("span", { class: "muted small name-preview" });
+        const node = el("div", { class: "record-row" },
+            el("label", { class: "check" }, check, label),
+            name,
+            preview,
+            hint ? el("span", { class: "muted small" }, hint) : null,
+        );
+        return { node, check, name, preview, checkKey, nameKey };
+    };
+
+    const album = option("Add to a new album", "create_album", "album_name");
+    const tag = option("Tag the photos", "create_tag", "tag_name", "· only your own photos can be tagged");
+    const reset = el("button", {
+        class: "btn ghost small",
+        onClick: () => { recordEdited = false; syncRecord(); },
+    }, "Use my defaults");
+
+    clear($("#set-record")).append(
+        el("div", { class: "record-head" }, el("span", { class: "small muted" }, "Record this set in Immich"), reset),
+        album.node,
+        tag.node,
+    );
+    recordUi = { album, tag, reset };
+}
+
+function syncRecord() {
+    if (!store.me) return;
+    if (!record || !recordEdited) record = recordDefaults();
+    if (!recordUi) buildRecordOptions();
+
+    const defaults = recordDefaults();
+    for (const part of [recordUi.album, recordUi.tag]) {
+        const on = record[part.checkKey];
+        part.check.checked = on;
+        // Leave the field alone while it is being typed in.
+        if (document.activeElement !== part.name) part.name.value = record[part.nameKey];
+        part.name.disabled = !on;
+        const template = record[part.nameKey].trim() || defaults[part.nameKey];
+        part.preview.textContent = on ? `→ ${previewName(template, store.selection.count)}` : "";
+    }
+    recordUi.reset.hidden = !recordEdited;
+}
+
+// Mirrors render_name_template on the server, so the preview shows the name
+// Immich will get. The time is the browser's; the real one is taken when the
+// set is prepared.
+function previewName(template, count) {
+    const now = new Date();
+    const pad = (n) => String(n).padStart(2, "0");
+    const date = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`;
+    const time = `${pad(now.getHours())}${pad(now.getMinutes())}${pad(now.getSeconds())}`;
+    const out = template
+        .replaceAll("{datetime}", `${date}_${time}`)
+        .replaceAll("{date}", date)
+        .replaceAll("{time}", time)
+        .replaceAll("{count}", String(count))
+        .replace(/[^\p{L}\p{N}_ \-.()\[\]{}#@+,']/gu, "_")
+        .trim();
+    return out.slice(0, 120);
 }
 
 function formatSize(bytes) {

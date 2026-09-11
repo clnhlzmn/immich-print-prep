@@ -22,6 +22,14 @@ router = APIRouter(prefix="/api", tags=["jobs"])
 
 class PrepareBody(BaseModel):
     ids: Optional[List[str]] = Field(default=None, max_length=2000)
+    # Per-set choices for recording the set in Immich. Anything left out (or a
+    # blank name) falls back to the user's saved settings, which this never
+    # changes. Names may use the same {datetime}/{date}/{time}/{count}
+    # placeholders as the saved templates, or be plain text.
+    create_album: Optional[bool] = None
+    album_name: Optional[str] = Field(default=None, max_length=120)
+    create_tag: Optional[bool] = None
+    tag_name: Optional[str] = Field(default=None, max_length=120)
 
 
 def _job_payload(row) -> Dict[str, Any]:
@@ -50,7 +58,17 @@ async def prepare_download(
     ctx: AppContext = Depends(get_ctx),
 ):
     """Start preparing the print set; returns a job to poll."""
+    # A fresh Prefs per request, so applying this set's overrides to it leaves
+    # the saved settings alone.
     prefs = ctx.prefs(username)
+    if body.create_album is not None:
+        prefs.create_album = body.create_album
+    if body.album_name and body.album_name.strip():
+        prefs.album_name_template = body.album_name.strip()
+    if body.create_tag is not None:
+        prefs.create_tag = body.create_tag
+    if body.tag_name and body.tag_name.strip():
+        prefs.tag_name_template = body.tag_name.strip()
     wanted = set(body.ids) if body.ids else None
     items = []
     for item in ctx.db.selection_items(username):

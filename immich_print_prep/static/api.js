@@ -60,7 +60,9 @@ export const api = {
     setAdjustments: (body) => request("/api/selection/adjustments", { method: "PUT", body }),
     geometry: (id, params) => request(`/api/selection/${id}/geometry`, { params }),
 
-    prepare: (ids) => request("/api/prepare", { method: "POST", body: ids ? { ids } : {} }),
+    // `options` carries this set's album/tag choices; omitted keys use the saved settings.
+    prepare: (ids, options = {}) =>
+        request("/api/prepare", { method: "POST", body: { ...(ids ? { ids } : {}), ...options } }),
     job: (id) => request(`/api/jobs/${id}`),
     cancelJob: (id) => request(`/api/jobs/${id}/cancel`, { method: "POST", body: {} }),
 };

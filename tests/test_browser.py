@@ -170,12 +170,28 @@ def test_full_walkthrough(site, page):
     editor.wait_for(state="hidden")
     page.wait_for_selector(".set-card .pill:text('custom')")
 
+    # --- per-set album choice, pre-filled from the saved default ---
+    record = page.locator("#set-record")
+    album_row = record.locator(".record-row").nth(0)
+    tag_row = record.locator(".record-row").nth(1)
+    assert album_row.locator("input[type=text]").input_value() == "{datetime}-print-set"
+    assert album_row.locator("input[type=text]").is_disabled()      # album is off by default
+    assert not record.get_by_role("button", name="Use my defaults").is_visible()
+
+    album_row.locator("input[type=checkbox]").check()
+    album_row.locator("input[type=text]").fill("Walkthrough {date}")
+    page.wait_for_selector("#set-record .name-preview:text('Walkthrough 20')")
+    assert record.get_by_role("button", name="Use my defaults").is_visible()
+    assert tag_row.locator(".name-preview").inner_text() == ""        # tag stays off
+
     # --- prepare and download ---
     with page.expect_download(timeout=60000) as download_info:
         page.click("#btn-prepare")
         page.wait_for_selector("text=Download zip", timeout=60000)
     download = download_info.value
     assert download.suggested_filename.endswith("-print-set.zip")
+    page.wait_for_selector("text=Added to a new Immich album: Walkthrough 20")
+    assert any(a["albumName"].startswith("Walkthrough 20") for a in fake.albums.values())
 
     with open(download.path(), "rb") as handle:
         with zipfile.ZipFile(io.BytesIO(handle.read())) as archive:
