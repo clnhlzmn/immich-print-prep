@@ -185,8 +185,10 @@ reads it underneath once the print is turned to landscape, and a portrait photo
 reads it sideways. Square photos are captioned along the bottom. When a caption
 does not fit, the steps are, cheapest first: slide the photo away from the
 caption; shrink the font to a readable minimum; shrink the photo just enough;
-and finally cut the text off with "…". Captions always pad the photo, never
-crop it to fill.
+and finally cut the text off with "…". Once the photo has to shrink, the
+caption goes on whichever edge costs it least rather than the usual one - a
+2:3 photo fills a 4×6 print exactly, so there it is captioned along the bottom.
+Captions always pad the photo, never crop it to fill.
 
 The caption font is DejaVu Sans Condensed (Latin, Greek and Cyrillic; no emoji
 or CJK), bundled under its own licence in `immich_print_prep/fonts/`.

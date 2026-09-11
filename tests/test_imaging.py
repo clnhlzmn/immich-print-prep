@@ -141,6 +141,7 @@ MEDIUM = SHORT + "\nFourth of July at the lake\nIn this photo: Alice, Bob"
 LONG = " ".join(["word"] * 2000)
 PORTRAIT_2X3 = (4000, 6000)       # also a landscape photo after the pipeline turns it
 PAPER_8X10 = (2400, 3000)
+PAPER_4X6 = (1200, 1800)
 
 
 def test_the_caption_font_ships_with_the_package():
@@ -170,10 +171,10 @@ def test_a_longer_caption_slides_the_photo_before_anything_shrinks():
     assert layout.strip > 200
 
 
-def test_a_photo_already_shaped_like_the_print_shrinks_just_enough():
+def test_a_photo_already_shaped_like_the_print_shrinks_as_little_as_possible():
     layout = layout_caption(PAPER_8X10, PAPER_8X10, SHORT, 300)
     left, top, width, height = layout.photo_box
-    assert layout.step == "shrunk"
+    assert (layout.step, layout.edge) == ("shrunk", "bottom")   # cheaper than the short side
     assert width < 2400 and height < 3000
     assert layout.strip == layout.edge_px + layout.gap_px + layout.line_height
 
@@ -187,6 +188,7 @@ def test_a_square_photo_is_captioned_along_the_bottom():
 def test_an_overlong_caption_is_cut_off_rather_than_shrinking_the_photo_further():
     layout = layout_caption(PORTRAIT_2X3, PAPER_8X10, LONG, 300)
     assert layout.truncated and layout.lines[-1].endswith("…")
+    assert layout.edge == "right"          # the existing border still makes this edge cheaper
     assert layout.strip <= 450                                    # 1.5 inches at 300 dpi
 
 
@@ -228,3 +230,28 @@ def test_caption_settings_round_trip_and_are_bounded():
     assert adj.caption and not adj.caption_people and len(adj.caption_text) == 1000
     assert Adjustments.from_dict(adj.to_dict()) == adj
     assert Adjustments.from_dict({"caption_text": None}, base=adj).caption_text is None
+
+
+def test_when_the_photo_must_shrink_the_caption_goes_where_it_costs_least():
+    # A 2:3 photo fills a 4x6 print exactly, so the photo has to give. A strip
+    # along the bottom takes proportionally less of it than one down the side.
+    layout = layout_caption(PORTRAIT_2X3, PAPER_4X6, SHORT, 300)
+    one_line = layout.edge_px + layout.gap_px + layout.line_height
+    assert (layout.edge, layout.step) == ("bottom", "shrunk")
+    assert layout.photo_box[2] > PAPER_4X6[0] - one_line   # wider than the right edge would leave
+    assert layout.photo_box[1] + layout.photo_box[3] + layout.strip == PAPER_4X6[1]
+
+
+def test_a_landscape_photo_on_4x6_is_captioned_along_the_bottom_too():
+    assert layout_caption(PORTRAIT_2X3, PAPER_4X6, SHORT, 300, turns=1).edge == "bottom"
+
+
+def test_a_4x6_print_carries_its_caption_along_the_bottom():
+    image = open_result(
+        prepare(make_image(*PORTRAIT_2X3), Adjustments(width_in=4, height_in=6), caption=SHORT)
+    )
+    assert image.size == PAPER_4X6
+    bottom = image.crop((60, 1700, 1140, 1795))
+    right = image.crop((1180, 20, 1198, 1660))
+    assert min(max(px) for px in bottom.getdata()) < 100        # text along the bottom
+    assert min(min(px) for px in right.getdata()) > 240         # nothing down the side

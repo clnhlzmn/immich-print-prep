@@ -467,23 +467,16 @@ def _fit_within(
     return max(1, int(round(size[0] * factor))), max(1, int(round(size[1] * factor)))
 
 
-def layout_caption(
+def _layout_along(
+    along_sides: bool,
     photo_size: Tuple[int, int],
     canvas: Tuple[int, int],
     text: str,
     dpi: float,
-    turns: int = 0,
-    allow_enlarge: bool = True,
+    turns: int,
+    allow_enlarge: bool,
 ) -> CaptionLayout:
-    """Place a caption in the border padding creates, keeping the photo as large as possible.
-
-    The caption goes in whichever border the photo leaves: down the right edge
-    (text turned counter-clockwise, so a landscape photo turned onto portrait
-    paper reads it underneath once the print is turned back) or along the
-    bottom. Photos turned clockwise or upside down mirror that. Then, cheapest
-    first: keep the photo centred; slide it away from the caption; shrink the
-    font; shrink the photo just enough; and finally cut the text off.
-    """
+    """Fit the caption on one pair of edges: down the sides, or along the ends."""
     width, height = canvas
 
     def px(inches: float) -> int:
@@ -491,15 +484,13 @@ def layout_caption(
 
     edge_px, gap_px = px(CAPTION_EDGE_IN), px(CAPTION_GAP_IN)
     fit_w, fit_h = _fit_within(photo_size, canvas, allow_enlarge)
-    side_space, end_space = width - fit_w, height - fit_h
-    along_sides = side_space >= end_space
     turns %= 4
     if along_sides:
         edge = "left" if turns in (2, 3) else "right"
-        run, space, across = height, side_space, width
+        run, space, across = height, width - fit_w, width
     else:
         edge = "top" if turns == 2 else "bottom"
-        run, space, across = width, end_space, height
+        run, space, across = width, height - fit_h, height
     line_width = max(1, run - 2 * edge_px)
     max_strip = max(
         edge_px + gap_px + 1,
@@ -527,12 +518,11 @@ def layout_caption(
 
     if need <= space:
         photo_w, photo_h = fit_w, fit_h
+        left, top = (width - fit_w) // 2, (height - fit_h) // 2
         if need * 2 <= space:
             step = "centred"
-            left, top = (width - fit_w) // 2, (height - fit_h) // 2
         else:
             step = "slid"
-            left, top = (width - fit_w) // 2, (height - fit_h) // 2
             if edge == "right":
                 left = width - need - fit_w
             elif edge == "left":
@@ -571,6 +561,43 @@ def layout_caption(
         step=step,
         truncated=truncated,
     )
+
+
+def layout_caption(
+    photo_size: Tuple[int, int],
+    canvas: Tuple[int, int],
+    text: str,
+    dpi: float,
+    turns: int = 0,
+    allow_enlarge: bool = True,
+) -> CaptionLayout:
+    """Place a caption so the photo stays as large as possible.
+
+    First choice is the border padding already leaves: down the right edge
+    (text turned counter-clockwise, so a landscape photo turned onto portrait
+    paper reads it underneath once the print is turned back) or along the
+    bottom, mirrored for photos turned clockwise or upside down. Within that
+    edge, cheapest first: keep the photo centred, slide it away from the
+    caption, shrink the font.
+
+    Only if the photo must shrink anyway does the edge stop being fixed: both
+    are tried and the one that leaves more photo wins. A 2:3 photo fills a 4x6
+    print exactly, and a strip along the long side costs it less than one down
+    the short side.
+    """
+    fit_w, fit_h = _fit_within(photo_size, canvas, allow_enlarge)
+    natural_sides = canvas[0] - fit_w >= canvas[1] - fit_h
+    preferred = _layout_along(natural_sides, photo_size, canvas, text, dpi, turns, allow_enlarge)
+    if preferred.step != "shrunk":
+        return preferred
+    other = _layout_along(not natural_sides, photo_size, canvas, text, dpi, turns, allow_enlarge)
+    if other.step != "shrunk":
+        return other
+
+    def photo_area(layout: CaptionLayout) -> int:
+        return layout.photo_box[2] * layout.photo_box[3]
+
+    return other if photo_area(other) > photo_area(preferred) else preferred
 
 
 def _text_colour(background: Tuple[int, int, int]) -> Tuple[int, int, int]:
