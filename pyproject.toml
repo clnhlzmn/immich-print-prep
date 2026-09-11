@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "immich-print-prep"
-version = "0.1.4"
+version = "0.1.5"
 description = "Web UI for selecting photos from an Immich instance and preparing them for print ordering."
 readme = "README.md"
 license = { text = "MIT" }
