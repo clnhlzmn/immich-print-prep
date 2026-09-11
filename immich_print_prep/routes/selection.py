@@ -277,7 +277,10 @@ async def _caption_source(
     if client is None:
         raise HTTPException(status.HTTP_409_CONFLICT, "no Immich API key configured")
     source = await resolve_source(client, asset_id)
-    ctx.caption_source_put(username, asset_id, source)
+    # A failed lookup is retried on the next proof instead of blanking the
+    # caption for as long as the cache lasts.
+    if not source.transient:
+        ctx.caption_source_put(username, asset_id, source)
     return source
 
 
@@ -319,9 +322,10 @@ async def preview_asset(
         raise HTTPException(
             status.HTTP_422_UNPROCESSABLE_ENTITY, "could not render preview: %s" % exc
         ) from exc
-    return Response(
-        rendered, media_type="image/jpeg", headers={"Cache-Control": "private, max-age=300"}
-    )
+    # An uncaptioned proof is a pure function of its URL. A captioned one also
+    # depends on Immich (descriptions, names), so it must not be reused.
+    cache = "no-store" if adj.caption else "private, max-age=300"
+    return Response(rendered, media_type="image/jpeg", headers={"Cache-Control": cache})
 
 
 @router.get("/{asset_id}/caption")

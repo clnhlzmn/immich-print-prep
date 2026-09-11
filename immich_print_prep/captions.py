@@ -48,6 +48,8 @@ class CaptionSource:
     names: List[str] = field(default_factory=list)
     faces_available: bool = True
     notes: List[str] = field(default_factory=list)
+    # Immich failed in a way that may not happen next time; not worth remembering.
+    transient: bool = False
 
 
 # ---------- capture time ----------
@@ -244,6 +246,7 @@ async def resolve_source(client: ImmichClient, asset_id: str) -> CaptionSource:
         details = await client.asset_details(asset_id)
     except ImmichError as exc:
         source.notes.append("caption unavailable: %s" % exc.message)
+        source.transient = True
         return source
 
     source.capture = format_capture_time(
@@ -265,4 +268,5 @@ async def resolve_source(client: ImmichClient, asset_id: str) -> CaptionSource:
             )
         else:
             source.notes.append("people listed without order: %s" % exc.message)
+            source.transient = True
     return source

@@ -555,3 +555,29 @@ def test_applying_settings_to_the_whole_set_keeps_each_photos_own_caption(signed
     }).json()
     assert swept["items"][0]["adjustments"]["caption_text"] == "Mine"
     assert swept["items"][0]["adjustments"]["width_in"] == 5
+
+
+def test_a_failed_caption_lookup_is_retried_not_remembered(signed_in, captioned, immich):
+    """A proof drawn while Immich was failing must not keep the caption blank."""
+    signed_in.post("/api/selection/add", json={"assets": [{"id": captioned}]})
+    url = "/api/selection/%s/preview" % captioned
+    params = {"caption": True, "max_edge": 2000}
+
+    def caption_strip(response):
+        image = Image.open(io.BytesIO(response.content)).convert("RGB")
+        return image.crop((1480, 40, 1595, 1960))    # the caption strip, right of the photo
+
+    immich.failing_details.add(captioned)
+    failed = signed_in.get(url, params=params)
+    immich.failing_details.discard(captioned)
+    recovered = signed_in.get(url, params=params)
+
+    assert min(max(px) for px in caption_strip(failed).getdata()) > 200      # blank while failing
+    assert min(max(px) for px in caption_strip(recovered).getdata()) < 100   # back once Immich answers
+    assert recovered.headers["cache-control"] == "no-store"                 # and never reused
+
+
+def test_uncaptioned_proofs_may_still_be_cached(signed_in, captioned):
+    signed_in.post("/api/selection/add", json={"assets": [{"id": captioned}]})
+    proof = signed_in.get("/api/selection/%s/preview" % captioned, params={"max_edge": 400})
+    assert proof.headers["cache-control"] == "private, max-age=300"

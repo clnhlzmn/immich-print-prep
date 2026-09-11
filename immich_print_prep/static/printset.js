@@ -16,6 +16,8 @@ let recordEdited = false;
 let recordUi = null;
 // Remembers the bulk toolbar's state across re-renders of the print set.
 let toolbarValues = null;
+// Bumped on every redraw of the grid; see proofKey.
+let renderVersion = 0;
 
 export function mount() {
     toolbar = $("#set-toolbar");
@@ -42,6 +44,7 @@ export function mount() {
 }
 
 export function render() {
+    renderVersion += 1;
     const selection = store.selection;
     renderToolbar(selection);
     actions.hidden = selection.count === 0;
@@ -66,7 +69,7 @@ function card(item) {
         el("div", { class: "proof" },
             el("img", {
                 loading: "lazy",
-                src: imageUrl.proof(item.id, { max_edge: 420, v: settingsKey(item.adjustments) }),
+                src: imageUrl.proof(item.id, { max_edge: 420, v: proofKey(item) }),
                 alt: item.info.filename || item.id,
             }),
         ),
@@ -97,6 +100,16 @@ function settingsKey(adjustments) {
     let hash = 0;
     for (let i = 0; i < text.length; i += 1) hash = (Math.imul(31, hash) + text.charCodeAt(i)) | 0;
     return (hash >>> 0).toString(36);
+}
+
+// The browser reuses an image whose URL it has seen, whatever the headers say.
+// An uncaptioned proof depends only on its settings, so a settings key is
+// enough. A caption also depends on Immich - descriptions, names, a lookup that
+// failed - so captioned proofs get a fresh URL each time the grid is drawn,
+// which keeps them in step with the Adjust dialog.
+function proofKey(item) {
+    const key = settingsKey(item.adjustments);
+    return item.adjustments.caption ? `${key}.${renderVersion}` : key;
 }
 
 const trim = (value) => String(Number(value).toFixed(2)).replace(/\.?0+$/, "");

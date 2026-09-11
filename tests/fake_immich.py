@@ -43,6 +43,8 @@ class FakeImmich:
         # the way Immich does for photos the key may see but not modify.
         self.bulk_failure: Optional[str] = None
         self.bulk_failure_after = 0
+        # Asset ids whose GET /assets/{id} answers 500, as a struggling Immich might.
+        self.failing_details: set = set()
         # Permissions RESTRICTED_KEY does not carry; tests can add to this.
         self.restricted_denies = set(RESTRICTED_DENIES)
         self.assets: Dict[str, Dict[str, Any]] = {}
@@ -124,6 +126,8 @@ class FakeImmich:
         @app.get("/api/assets/{asset_id}")
         def asset_info(asset_id: str, x_api_key: Optional[str] = Header(default=None)):
             auth(x_api_key, "asset.read")
+            if asset_id in fake.failing_details:
+                raise HTTPException(500, "Internal server error")
             if asset_id not in fake.assets:
                 raise HTTPException(404, "no such asset")
             asset = fake.assets[asset_id]
