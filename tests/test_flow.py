@@ -493,7 +493,7 @@ def test_a_caption_is_built_from_immich_and_printed_in_the_border(signed_in, cap
     manifest = archive.read("print-set-manifest.txt").decode()
     assert (
         "caption: 2026-07-04 14:30:05 CDT / Fourth of July at the lake"
-        " / From left to right: Alice, Bob"
+        " / In this photo: Alice, Bob"
     ) in manifest
     assert job["detail"]["caption_notes"] == []
 
@@ -518,14 +518,14 @@ def test_without_face_access_people_are_named_without_an_order(signed_in, captio
     immich.restricted_denies.add("face.read")
     signed_in.put("/api/settings", json={"api_key": RESTRICTED_KEY})
     job, archive = _prepare_one(signed_in, captioned, caption=True, caption_date=False, caption_description=False)
-    assert "caption: With: Bob, Alice" in archive.read("print-set-manifest.txt").decode()
+    assert "caption: In this photo: Bob, Alice" in archive.read("print-set-manifest.txt").decode()
     assert any("face.read" in note for note in job["detail"]["caption_notes"])
 
 
 def test_the_editor_gets_immichs_caption_with_crop_and_rotation_applied(signed_in, captioned):
     signed_in.post("/api/selection/add", json={"assets": [{"id": captioned}]})
     info = signed_in.get("/api/selection/%s/caption" % captioned).json()
-    assert info["auto"].endswith("From left to right: Alice, Bob")        # unnamed person left out
+    assert info["auto"].endswith("In this photo: Alice, Bob")        # unnamed person left out
     assert info["override"] is None
     assert info["parts"]["capture"] == "2026-07-04 14:30:05 CDT"
 
@@ -535,7 +535,7 @@ def test_the_editor_gets_immichs_caption_with_crop_and_rotation_applied(signed_i
     cropped = signed_in.get("/api/selection/%s/caption" % captioned, params={
         "crop": "0,0.5,1,0.5", "caption_date": False, "caption_description": False,
     }).json()
-    assert cropped["auto"] == "Alice"
+    assert cropped["auto"] == "In this photo: Alice"
 
 
 def test_a_captioned_proof_renders(signed_in, captioned):

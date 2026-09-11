@@ -14,6 +14,10 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from .immich import ImmichClient, ImmichError
 
+# Heads the people line. Deliberately not "From left to right": unnamed faces
+# are left out, so the names are in order but are not every face in the photo.
+PEOPLE_PREFIX = "In this photo: "
+
 # Immich stores either an IANA zone ("America/Chicago") or a bare offset
 # ("UTC-5", "UTC+5:30", "UTC+0").
 _OFFSET_ZONE_RE = re.compile(r"^(?:UTC|GMT)?\s*([+-])(\d{1,2})(?::?(\d{2}))?$", re.IGNORECASE)
@@ -165,7 +169,7 @@ def to_rotated(u: float, v: float, turns: int) -> Tuple[float, float]:
 
 
 def people_line(faces: Sequence[Face], crop: Any = None, turns: int = 0) -> Optional[str]:
-    """`From left to right: Alice, Bob`, as the photo is viewed upright.
+    """`In this photo: Alice, Bob`, named left to right as the photo is viewed upright.
 
     Only named people are listed; anyone unnamed (or hidden) is left out, as is
     anyone the crop removes.
@@ -185,11 +189,7 @@ def people_line(faces: Sequence[Face], crop: Any = None, turns: int = 0) -> Opti
     for face in named:
         if face.name not in names:
             names.append(face.name)
-    if not names:
-        return None
-    if len(names) == 1:
-        return names[0]
-    return "From left to right: " + ", ".join(names)
+    return PEOPLE_PREFIX + ", ".join(names) if names else None
 
 
 def unordered_people_line(names: Sequence[str]) -> Optional[str]:
@@ -198,7 +198,7 @@ def unordered_people_line(names: Sequence[str]) -> Optional[str]:
         name = (name or "").strip()
         if name and name not in unique:
             unique.append(name)
-    return "With: " + ", ".join(unique) if unique else None
+    return PEOPLE_PREFIX + ", ".join(unique) if unique else None
 
 
 # ---------- putting it together ----------

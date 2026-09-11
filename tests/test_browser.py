@@ -273,7 +273,7 @@ def test_a_caption_can_be_rewritten_for_one_print(tmp_path, page):
             )
             box = editor.locator("textarea")
             assert box.input_value() == (
-                "2026-07-04 14:30:05 CDT\nFourth of July at the lake\nFrom left to right: Alice, Bob"
+                "2026-07-04 14:30:05 CDT\nFourth of July at the lake\nIn this photo: Alice, Bob"
             )
             assert not editor.get_by_role("button", name="Use Immich's text").is_visible()
 

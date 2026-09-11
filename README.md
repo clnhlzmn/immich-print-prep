@@ -169,10 +169,11 @@ or one photo's Adjust dialog) to print up to three lines beside each photo:
   printed with no zone rather than a guessed one.
 - **Description** — the photo's description in Immich, fetched when you click
   Prepare, so edits made in Immich since are included.
-- **People** — `From left to right: Alice, Bob`, as the photo is viewed upright.
-  Only people named in Immich are listed; unnamed faces, and anyone your crop
-  removes, are left out. Needs the `face.read` permission; without it the names
-  are listed with no order, as `With: …`.
+- **People** — `In this photo: Alice, Bob`. Only people named in Immich are
+  listed, left to right as the photo is viewed upright; unnamed faces, and
+  anyone your crop removes, are left out, which is why the line does not say
+  "from left to right". Needs the `face.read` permission to know the order;
+  without it the same line lists the names in no particular order.
 
 In any photo's Adjust dialog you can rewrite its caption for that print only;
 **Use Immich's text** puts the generated one back.

@@ -67,11 +67,12 @@ GROUP = [
 
 
 def test_named_people_are_listed_left_to_right_and_the_unnamed_left_out():
-    assert people_line(GROUP) == "From left to right: Alice, Bob"
+    # Four faces, two names: the wording must not suggest everyone is listed.
+    assert people_line(GROUP) == "In this photo: Alice, Bob"
 
 
-def test_one_person_is_just_their_name():
-    assert people_line([face("Alice", 0.5)]) == "Alice"
+def test_one_person_gets_the_same_wording():
+    assert people_line([face("Alice", 0.5)]) == "In this photo: Alice"
 
 
 def test_nobody_named_means_no_people_line():
@@ -79,19 +80,21 @@ def test_nobody_named_means_no_people_line():
 
 
 def test_someone_seen_twice_is_named_once():
-    assert people_line([face("Alice", 0.2), face("Alice", 0.8)]) == "Alice"
+    assert people_line([face("Alice", 0.2), face("Alice", 0.8)]) == "In this photo: Alice"
 
 
 def test_faces_the_crop_cuts_out_are_dropped():
     left_half = SimpleNamespace(x=0.0, y=0.0, w=0.5, h=1.0)
-    assert people_line(GROUP, crop=left_half, turns=0) == "Alice"
+    assert people_line(GROUP, crop=left_half, turns=0) == "In this photo: Alice"
 
 
 def test_crop_is_checked_in_the_rotated_photo_the_crop_box_was_drawn_on():
     # A landscape photo turned counter-clockwise: its left side becomes the
     # bottom of the rotated image, so a crop of the bottom half keeps Alice.
     bottom_half = SimpleNamespace(x=0.0, y=0.5, w=1.0, h=0.5)
-    assert people_line([face("Alice", 0.2), face("Bob", 0.8)], crop=bottom_half, turns=1) == "Alice"
+    assert people_line([face("Alice", 0.2), face("Bob", 0.8)], crop=bottom_half, turns=1) == (
+        "In this photo: Alice"
+    )
 
 
 def test_rotation_helpers_agree_with_the_pipeline():
@@ -101,8 +104,8 @@ def test_rotation_helpers_agree_with_the_pipeline():
     assert to_rotated(0.0, 0.0, 3) == (1.0, 0.0)    # ...or top-right, turning the other way
 
 
-def test_names_without_positions_are_not_presented_as_an_order():
-    assert unordered_people_line(["Bob", "Alice", "Bob", ""]) == "With: Bob, Alice"
+def test_names_without_positions_use_the_same_wording():
+    assert unordered_people_line(["Bob", "Alice", "Bob", ""]) == "In this photo: Bob, Alice"
     assert unordered_people_line([]) is None
 
 
@@ -139,7 +142,7 @@ SOURCE = CaptionSource(
 
 def test_compose_puts_each_part_on_its_own_line():
     assert compose(SOURCE, adjustments()) == (
-        "2026-07-04 14:30:05 CDT\nFourth of July at the lake\nFrom left to right: Alice, Bob"
+        "2026-07-04 14:30:05 CDT\nFourth of July at the lake\nIn this photo: Alice, Bob"
     )
 
 
@@ -156,4 +159,4 @@ def test_the_users_own_text_wins_even_when_blank():
 
 def test_without_face_access_people_are_listed_unordered():
     source = CaptionSource(names=["Bob", "Alice"], faces_available=False)
-    assert compose(source, adjustments(caption_date=False)) == "With: Bob, Alice"
+    assert compose(source, adjustments(caption_date=False)) == "In this photo: Bob, Alice"
