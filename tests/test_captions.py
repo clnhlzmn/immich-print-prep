@@ -62,12 +62,12 @@ GROUP = [
     face("Bob", 0.70),
     face("Alice", 0.20),
     face("", 0.45, h=0.18),       # someone unnamed standing between them
-    face("", 0.90, h=0.03),       # a stranger far in the background
+    face("", 0.90, h=0.03),       # and another in the background
 ]
 
 
-def test_people_are_listed_left_to_right_with_a_slot_for_the_unnamed():
-    assert people_line(GROUP) == "From left to right: Alice, unknown, Bob"
+def test_named_people_are_listed_left_to_right_and_the_unnamed_left_out():
+    assert people_line(GROUP) == "From left to right: Alice, Bob"
 
 
 def test_one_person_is_just_their_name():
@@ -84,7 +84,7 @@ def test_someone_seen_twice_is_named_once():
 
 def test_faces_the_crop_cuts_out_are_dropped():
     left_half = SimpleNamespace(x=0.0, y=0.0, w=0.5, h=1.0)
-    assert people_line(GROUP, crop=left_half, turns=0) == "From left to right: Alice, unknown"
+    assert people_line(GROUP, crop=left_half, turns=0) == "Alice"
 
 
 def test_crop_is_checked_in_the_rotated_photo_the_crop_box_was_drawn_on():

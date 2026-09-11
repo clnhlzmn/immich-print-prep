@@ -137,7 +137,7 @@ def test_undecodable_bytes_raise_a_named_error():
 from immich_print_prep.imaging import CAPTION_FONT_PATH, layout_caption  # noqa: E402
 
 SHORT = "2026-07-04 14:30:05 CDT"
-MEDIUM = SHORT + "\nFourth of July at the lake\nFrom left to right: Alice, unknown, Bob"
+MEDIUM = SHORT + "\nFourth of July at the lake\nFrom left to right: Alice, Bob"
 LONG = " ".join(["word"] * 2000)
 PORTRAIT_2X3 = (4000, 6000)       # also a landscape photo after the pipeline turns it
 PAPER_8X10 = (2400, 3000)

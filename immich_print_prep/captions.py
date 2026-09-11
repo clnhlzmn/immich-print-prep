@@ -14,12 +14,6 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from .immich import ImmichClient, ImmichError
 
-UNKNOWN_PERSON = "unknown"
-
-# An unnamed face less than this fraction of the smallest named face's height
-# is taken to be a passer-by in the background, not someone in the picture.
-BACKGROUND_FACE_RATIO = 0.5
-
 # Immich stores either an IANA zone ("America/Chicago") or a bare offset
 # ("UTC-5", "UTC+5:30", "UTC+0").
 _OFFSET_ZONE_RE = re.compile(r"^(?:UTC|GMT)?\s*([+-])(\d{1,2})(?::?(\d{2}))?$", re.IGNORECASE)
@@ -171,40 +165,31 @@ def to_rotated(u: float, v: float, turns: int) -> Tuple[float, float]:
 
 
 def people_line(faces: Sequence[Face], crop: Any = None, turns: int = 0) -> Optional[str]:
-    """`From left to right: Alice, unknown, Bob`, as the photo is viewed upright.
+    """`From left to right: Alice, Bob`, as the photo is viewed upright.
 
-    Faces the crop cuts out are dropped. Unnamed faces keep an `unknown` slot so
-    the order stays true, unless they are small enough to be background.
+    Only named people are listed; anyone unnamed (or hidden) is left out, as is
+    anyone the crop removes.
     """
-    visible = []
+    named = []
     for face in faces:
+        if not face.name:
+            continue
         if crop is not None:
             x, y = to_rotated(face.cx, face.cy, turns)
             if not (crop.x <= x <= crop.x + crop.w and crop.y <= y <= crop.y + crop.h):
                 continue
-        visible.append(face)
+        named.append(face)
+    named.sort(key=lambda face: face.cx)
 
-    named = [face for face in visible if face.name]
-    if not named:
+    names: List[str] = []
+    for face in named:
+        if face.name not in names:
+            names.append(face.name)
+    if not names:
         return None
-    smallest = min(face.h for face in named)
-    kept = [
-        face for face in visible
-        if face.name or face.h >= smallest * BACKGROUND_FACE_RATIO
-    ]
-    kept.sort(key=lambda face: face.cx)
-
-    labels: List[str] = []
-    seen = set()
-    for face in kept:
-        if not face.name:
-            labels.append(UNKNOWN_PERSON)
-        elif face.name not in seen:
-            seen.add(face.name)
-            labels.append(face.name)
-    if len(labels) == 1:
-        return labels[0]
-    return "From left to right: " + ", ".join(labels)
+    if len(names) == 1:
+        return names[0]
+    return "From left to right: " + ", ".join(names)
 
 
 def unordered_people_line(names: Sequence[str]) -> Optional[str]:

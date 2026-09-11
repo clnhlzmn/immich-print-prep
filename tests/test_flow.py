@@ -493,7 +493,7 @@ def test_a_caption_is_built_from_immich_and_printed_in_the_border(signed_in, cap
     manifest = archive.read("print-set-manifest.txt").decode()
     assert (
         "caption: 2026-07-04 14:30:05 CDT / Fourth of July at the lake"
-        " / From left to right: Alice, unknown, Bob"
+        " / From left to right: Alice, Bob"
     ) in manifest
     assert job["detail"]["caption_notes"] == []
 
@@ -525,17 +525,17 @@ def test_without_face_access_people_are_named_without_an_order(signed_in, captio
 def test_the_editor_gets_immichs_caption_with_crop_and_rotation_applied(signed_in, captioned):
     signed_in.post("/api/selection/add", json={"assets": [{"id": captioned}]})
     info = signed_in.get("/api/selection/%s/caption" % captioned).json()
-    assert info["auto"].endswith("From left to right: Alice, unknown, Bob")
+    assert info["auto"].endswith("From left to right: Alice, Bob")        # unnamed person left out
     assert info["override"] is None
     assert info["parts"]["capture"] == "2026-07-04 14:30:05 CDT"
 
     # The landscape photo is turned counter-clockwise, so its left side is the
     # bottom of the image the crop box is drawn on: cropping to that keeps Alice
-    # and the unnamed person, and loses Bob.
+    # and loses Bob.
     cropped = signed_in.get("/api/selection/%s/caption" % captioned, params={
         "crop": "0,0.5,1,0.5", "caption_date": False, "caption_description": False,
     }).json()
-    assert cropped["auto"] == "From left to right: Alice, unknown"
+    assert cropped["auto"] == "Alice"
 
 
 def test_a_captioned_proof_renders(signed_in, captioned):
