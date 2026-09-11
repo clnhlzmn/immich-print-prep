@@ -298,7 +298,12 @@ async function startPrepare() {
     dialog.showModal();
 
     try {
-        job = await api.prepare(null, record ? { ...record } : {});
+        job = await api.prepare(null, {
+            ...(record || {}),
+            // Stamp names with this browser's clock, not the server's (often UTC),
+            // so they match the preview shown beside each name.
+            tz_offset_minutes: new Date().getTimezoneOffset(),
+        });
     } catch (error) {
         message.textContent = describe(error);
         cancelButton.hidden = true;

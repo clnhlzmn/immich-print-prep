@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import json
 import uuid
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
@@ -30,6 +31,10 @@ class PrepareBody(BaseModel):
     album_name: Optional[str] = Field(default=None, max_length=120)
     create_tag: Optional[bool] = None
     tag_name: Optional[str] = Field(default=None, max_length=120)
+    # The browser's Date.getTimezoneOffset(): minutes *behind* UTC, so UTC+2 is
+    # -120. Set names and the manifest follow the user's wall clock instead of
+    # the container's, which is usually UTC. Real zones span -840 to +720.
+    tz_offset_minutes: Optional[int] = Field(default=None, ge=-840, le=840)
 
 
 def _job_payload(row) -> Dict[str, Any]:
@@ -90,7 +95,12 @@ async def prepare_download(
 
     job_id = uuid.uuid4().hex
     ctx.db.create_job(job_id, username, total=len(items))
-    task = asyncio.ensure_future(run_prepare_job(ctx, username, job_id, items, prefs))
+    moment = None
+    if body.tz_offset_minutes is not None:
+        moment = datetime.now(timezone(timedelta(minutes=-body.tz_offset_minutes)))
+    task = asyncio.ensure_future(
+        run_prepare_job(ctx, username, job_id, items, prefs, moment=moment)
+    )
     ctx.tasks[job_id] = task
     task.add_done_callback(lambda _: ctx.tasks.pop(job_id, None))
     return _job_payload(ctx.db.get_job(job_id))

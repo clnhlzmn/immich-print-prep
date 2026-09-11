@@ -5,6 +5,7 @@ from __future__ import annotations
 import io
 import time
 import zipfile
+from datetime import datetime, timedelta, timezone
 
 import pytest
 from PIL import Image
@@ -439,3 +440,26 @@ def test_leaving_the_choices_out_uses_the_saved_settings(signed_in, library, imm
 def test_per_set_names_are_length_checked(signed_in, library):
     signed_in.post("/api/selection/add", json={"assets": [{"id": library[0]}]})
     assert signed_in.post("/api/prepare", json={"album_name": "x" * 500}).status_code == 422
+
+
+def test_set_names_use_the_browsers_clock_not_the_servers(signed_in, library, immich):
+    """The container is usually UTC; a set should be named by the user's local time."""
+    signed_in.post("/api/selection/add-source", json={"album_id": next(iter(immich.albums))})
+    kiritimati = timezone(timedelta(hours=14))          # as far from UTC as a real zone gets
+    job = signed_in.post("/api/prepare", json={
+        "create_album": True,
+        "album_name": "{datetime}-print-set",
+        "tz_offset_minutes": -14 * 60,                  # getTimezoneOffset() for UTC+14
+    }).json()
+    job = wait_for_job(signed_in, job["id"])
+    assert job["status"] == "done"
+
+    stamp = job["detail"]["album"]["name"][: len("2026-09-11_101500")]
+    named = datetime.strptime(stamp, "%Y-%m-%d_%H%M%S").replace(tzinfo=kiritimati)
+    assert abs((datetime.now(kiritimati) - named).total_seconds()) < 120
+    assert job["filename"].startswith(stamp)            # the zip uses the same clock
+
+
+def test_an_impossible_time_zone_offset_is_refused(signed_in, library):
+    signed_in.post("/api/selection/add", json={"assets": [{"id": library[0]}]})
+    assert signed_in.post("/api/prepare", json={"tz_offset_minutes": 5000}).status_code == 422

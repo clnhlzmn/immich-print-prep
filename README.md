@@ -36,7 +36,8 @@ A multi-arch Docker image is published to the GitHub Container Registry (GHCR).
 - **Keep a record.** Optionally create an Immich album and/or tag named
   `<datetime>-print-set` holding everything you just downloaded. The choice and
   the names are set per print set, right beside the Prepare button, pre-filled
-  from your saved defaults.
+  from your saved defaults. Names are stamped with your browser's local time,
+  not the server's.
 
 ## Quick start
 

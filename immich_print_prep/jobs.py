@@ -40,9 +40,14 @@ async def run_prepare_job(
     job_id: str,
     items: List[Dict[str, Any]],
     prefs: Prefs,
+    moment: Optional[datetime] = None,
 ) -> None:
-    """Prepare every selected asset and leave a zip on disk for download."""
-    moment = datetime.now()
+    """Prepare every selected asset and leave a zip on disk for download.
+
+    `moment` stamps the zip, album and tag names and the manifest. Callers pass
+    it in the user's time zone; without one it is the server's local time.
+    """
+    moment = moment or datetime.now()
     zip_path = ctx.config.jobs_dir / ("%s.zip" % job_id)
     zip_name = render_name_template(prefs.zip_name_template, moment, len(items)) + ".zip"
     failures: List[Tuple[str, str]] = []

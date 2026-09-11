@@ -11,6 +11,7 @@ import io
 import threading
 import time
 import zipfile
+from datetime import datetime, timedelta, timezone
 
 import pytest
 import uvicorn
@@ -75,7 +76,11 @@ def page():
             browser = playwright.chromium.launch()
         except Exception as exc:  # no browser binary installed
             pytest.skip("chromium is not installed: %s" % exc)
-        context = browser.new_context(viewport={"width": 1400, "height": 1000})
+        # A zone 14 hours from UTC, so a name stamped with the server's clock
+        # instead of the browser's cannot pass by coincidence.
+        context = browser.new_context(
+            viewport={"width": 1400, "height": 1000}, timezone_id="Pacific/Kiritimati"
+        )
         page = context.new_page()
         errors = []
         page.on("pageerror", lambda error: errors.append(str(error)))
@@ -191,7 +196,12 @@ def test_full_walkthrough(site, page):
     download = download_info.value
     assert download.suggested_filename.endswith("-print-set.zip")
     page.wait_for_selector("text=Added to a new Immich album: Walkthrough 20")
-    assert any(a["albumName"].startswith("Walkthrough 20") for a in fake.albums.values())
+    names = [a["albumName"] for a in fake.albums.values() if a["albumName"].startswith("Walkthrough ")]
+    kiritimati_dates = {
+        (datetime.now(timezone.utc) + timedelta(hours=14, minutes=back)).strftime("%Y-%m-%d")
+        for back in (-5, 0)
+    }
+    assert len(names) == 1 and names[0].split(" ", 1)[1] in kiritimati_dates, names
 
     with open(download.path(), "rb") as handle:
         with zipfile.ZipFile(io.BytesIO(handle.read())) as archive:
