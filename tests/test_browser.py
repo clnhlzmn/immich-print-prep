@@ -288,3 +288,59 @@ def test_a_caption_can_be_rewritten_for_one_print(tmp_path, page):
             with zipfile.ZipFile(download_info.value.path()) as archive:
                 manifest = archive.read("print-set-manifest.txt").decode()
             assert "caption: Lake day with Alice and Bob" in manifest
+
+
+def test_a_print_can_be_opened_larger_from_the_print_set(tmp_path, page):
+    fake = FakeImmich()
+    first = fake.add_asset("first.jpg", 3000, 2000)
+    second = fake.add_asset("second.jpg", 2000, 3000)
+    fake.add_album("Both", [first, second])
+
+    with FakeImmichServer(fake) as immich:
+        config_path = tmp_path / "config.yaml"
+        config_path.write_text(
+            "immich_url: %s\ndata_dir: %s\nusers:\n  - colin\n" % (immich.url, tmp_path / "data"),
+            encoding="utf-8",
+        )
+        with AppServer(create_app(load_config(str(config_path)))) as app:
+            _claim_and_connect(page, app)
+            page.wait_for_selector(".album-card")
+            page.click(".album-card")
+            page.wait_for_selector(".asset")
+            page.click("#btn-add-everything")
+            page.wait_for_selector("#set-count:text('2')")
+            page.click("#tab-set")
+            page.wait_for_selector(".set-card img")
+            page.wait_for_function(
+                "() => [...document.querySelectorAll('.set-card img')].every(i => i.complete && i.naturalWidth)"
+            )
+            card_width = page.evaluate("document.querySelector('.set-card img').naturalWidth")
+
+            page.locator(".set-card .proof").first.click()
+            viewer = page.locator("#viewer-dialog")
+            viewer.wait_for(state="visible")
+            page.wait_for_function(
+                "() => { const i = document.querySelector('#viewer-dialog img');"
+                " return i && i.complete && i.naturalWidth > 0; }"
+            )
+            assert page.evaluate("document.querySelector('#viewer-dialog img').naturalWidth") > card_width
+            assert viewer.locator("h2").inner_text() == "first.jpg"
+            assert "1 of 2" in viewer.inner_text()
+
+            page.keyboard.press("ArrowRight")
+            page.wait_for_selector("#viewer-dialog h2:text('second.jpg')")
+            assert "2 of 2" in viewer.inner_text()
+
+            # Adjust takes over from the viewer.
+            viewer.get_by_role("button", name="Adjust").click()
+            viewer.wait_for(state="hidden")
+            editor = page.locator("#editor-dialog")
+            editor.wait_for(state="visible")
+            assert editor.locator("h2").inner_text() == "second.jpg"
+            editor.get_by_role("button", name="Cancel").click()
+
+            # And it closes with Escape.
+            page.locator(".set-card .proof").first.click()
+            viewer.wait_for(state="visible")
+            page.keyboard.press("Escape")
+            viewer.wait_for(state="hidden")

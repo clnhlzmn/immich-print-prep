@@ -66,7 +66,12 @@ export function render() {
 function card(item) {
     const adj = item.adjustments;
     return el("div", { class: "set-card" },
-        el("div", { class: "proof" },
+        el("button", {
+            class: "proof",
+            title: "See this print larger",
+            "aria-label": `See ${item.info.filename || "this print"} larger`,
+            onClick: () => openViewer(store.selection.items.indexOf(item)),
+        },
             el("img", {
                 loading: "lazy",
                 src: imageUrl.proof(item.id, { max_edge: 420, v: proofKey(item) }),
@@ -76,7 +81,7 @@ function card(item) {
         el("div", { class: "meta" },
             el("div", { class: "name", title: item.info.filename || item.id }, item.info.filename || item.id),
             el("div", { class: "muted small" },
-                `${trim(adj.width_in)} × ${trim(adj.height_in)} in · ${adj.dpi} dpi · ${adj.caption ? "padded · caption" : adj.fit === "crop" ? "cropped to fill" : "padded"}`,
+                summaryText(adj),
                 item.customised ? el("span", { class: "pill", style: { marginLeft: "6px" } }, "custom") : null,
             ),
             el("div", { class: "row" },
@@ -110,6 +115,11 @@ function settingsKey(adjustments) {
 function proofKey(item) {
     const key = settingsKey(item.adjustments);
     return item.adjustments.caption ? `${key}.${renderVersion}` : key;
+}
+
+function summaryText(adj) {
+    const fit = adj.caption ? "padded · caption" : adj.fit === "crop" ? "cropped to fill" : "padded";
+    return `${trim(adj.width_in)} × ${trim(adj.height_in)} in · ${adj.dpi} dpi · ${fit}`;
 }
 
 const trim = (value) => String(Number(value).toFixed(2)).replace(/\.?0+$/, "");
@@ -154,6 +164,61 @@ function renderToolbar(selection) {
         saveDefaults,
         applyAll,
     );
+}
+
+// ---------- the larger proof ----------
+
+function openViewer(startIndex) {
+    const dialog = $("#viewer-dialog");
+    let index = startIndex;
+
+    const image = el("img", { alt: "" });
+    const title = el("h2", {}, "");
+    const position = el("span", { class: "muted small" }, "");
+    const summary = el("span", { class: "muted small" }, "");
+
+    const show = (wanted) => {
+        const items = store.selection.items;
+        if (!items.length) { dialog.close(); return; }
+        index = (wanted + items.length) % items.length;    // wraps at either end
+        const item = items[index];
+        image.src = imageUrl.proof(item.id, { max_edge: 1400, v: proofKey(item) });
+        image.alt = item.info.filename || item.id;
+        title.textContent = item.info.filename || item.id;
+        position.textContent = `${index + 1} of ${items.length}`;
+        summary.textContent = summaryText(item.adjustments);
+    };
+
+    clear(dialog).append(
+        el("div", { class: "head" },
+            title,
+            el("span", { class: "spacer", style: { flex: "1" } }),
+            position,
+            el("button", { class: "btn ghost small", onClick: () => dialog.close() }, "Close"),
+        ),
+        el("div", { class: "body viewer" }, image),
+        el("div", { class: "foot" },
+            el("button", { class: "btn", onClick: () => show(index - 1) }, "‹ Previous"),
+            el("button", { class: "btn", onClick: () => show(index + 1) }, "Next ›"),
+            summary,
+            el("span", { class: "spacer", style: { flex: "1" } }),
+            el("button", {
+                class: "btn primary",
+                onClick: () => {
+                    const item = store.selection.items[index];
+                    dialog.close();
+                    openEditor(item);
+                },
+            }, "Adjust"),
+        ),
+    );
+    dialog.addEventListener("keydown", (event) => {
+        if (event.key === "ArrowRight") { event.preventDefault(); show(index + 1); }
+        if (event.key === "ArrowLeft") { event.preventDefault(); show(index - 1); }
+    });
+
+    show(index);
+    dialog.showModal();
 }
 
 // ---------- per-photo editor ----------

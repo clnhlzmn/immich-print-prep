@@ -30,7 +30,8 @@ A multi-arch Docker image is published to the GitHub Container Registry (GHCR).
 - **Adjust the print set** in bulk or photo by photo: print size, orientation,
   pad or crop-to-fill, pad colour, DPI, JPEG quality, output format, and a
   draggable crop box locked to the print ratio. Every card shows a proof of the
-  finished file, rendered by the same code that writes the zip.
+  finished file, rendered by the same code that writes the zip; click one to see
+  it large, and step through the set with the arrow keys.
 - **Download** a zip. The server pulls the originals from Immich, converts them,
   and streams the result, with a progress bar and a per-photo manifest.
 - **Keep a record.** Optionally create an Immich album and/or tag named

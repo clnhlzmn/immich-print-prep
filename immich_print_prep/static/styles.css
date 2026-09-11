@@ -293,7 +293,19 @@ label.check { display: flex; align-items: center; gap: 8px; font-size: 14px; col
     place-items: center;
     padding: 10px;
     min-height: 180px;
+    border: 0;
+    width: 100%;
+    font: inherit;
+    color: inherit;
+    cursor: zoom-in;
 }
+
+.set-card .proof:hover img,
+.set-card .proof:focus-visible img { outline: 2px solid var(--accent); outline-offset: 3px; }
+
+/* The larger proof, opened by clicking a card. */
+dialog .body.viewer { display: grid; place-items: center; background: var(--panel-2); padding: 14px; }
+.viewer img { max-width: 100%; max-height: 72vh; background: #fff; box-shadow: var(--shadow); }
 
 .set-card .proof img {
     max-width: 100%;
