@@ -28,6 +28,9 @@ DEFAULT_ZIP_TEMPLATE = "{datetime}-print-set"
 # no v0.1.0 database is in use.
 LEGACY_TEMPLATES = frozenset({"print-set-{datetime}"})
 
+# How long caption facts from Immich are reused by proofs.
+CAPTION_SOURCE_TTL_SECONDS = 120
+
 # How much of the thumbnail cache to keep on disk.
 CACHE_LIMIT_BYTES = 512 * 1024 * 1024
 
@@ -97,6 +100,9 @@ class AppContext:
         # closed by the housekeeping pass, which always has a running loop.
         self._clients: Dict[Tuple[str, str], ImmichClient] = {}
         self._retired: List[ImmichClient] = []
+        # Caption facts per (user, asset), so dragging a crop box does not ask
+        # Immich again for every proof. Prepare always fetches fresh.
+        self._caption_sources: Dict[Tuple[str, str], Tuple[float, Any]] = {}
         self.cache_dir = config.cache_dir
         self.cache_dir.mkdir(parents=True, exist_ok=True)
         config.jobs_dir.mkdir(parents=True, exist_ok=True)
@@ -151,6 +157,21 @@ class AppContext:
         client = ImmichClient(self.config.immich_url, key, verify_tls=self.config.verify_tls)
         self._clients[(username, fingerprint)] = client
         return client
+
+    # ---------- caption facts ----------
+
+    def caption_source_get(self, username: str, asset_id: str) -> Any:
+        entry = self._caption_sources.get((username, asset_id))
+        if entry and entry[0] > time.monotonic():
+            return entry[1]
+        return None
+
+    def caption_source_put(self, username: str, asset_id: str, source: Any) -> None:
+        if len(self._caption_sources) > 2000:
+            self._caption_sources.clear()
+        self._caption_sources[(username, asset_id)] = (
+            time.monotonic() + CAPTION_SOURCE_TTL_SECONDS, source
+        )
 
     # ---------- thumbnail cache ----------
 

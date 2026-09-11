@@ -15,9 +15,11 @@ from __future__ import annotations
 import io
 import re
 from dataclasses import asdict, dataclass, replace
-from typing import Any, Dict, Optional, Tuple
+from functools import lru_cache
+from pathlib import Path
+from typing import Any, Dict, List, Optional, Tuple
 
-from PIL import Image, ImageCms, ImageOps, UnidentifiedImageError
+from PIL import Image, ImageCms, ImageDraw, ImageFont, ImageOps, UnidentifiedImageError
 
 try:  # HEIC/HEIF is what phones shoot; Pillow cannot read it on its own.
     from pillow_heif import register_heif_opener
@@ -39,6 +41,18 @@ _HEX_RE = re.compile(r"^#?([0-9a-fA-F]{6})$")
 # Guard rails: an 8x10 at 300 DPI is 2400x3000; allow generous headroom but
 # refuse absurd sizes that would exhaust memory.
 MAX_PIXELS_PER_SIDE = 20000
+
+# ---------- caption geometry ----------
+CAPTION_FONT_PATH = Path(__file__).parent / "fonts" / "DejaVuSansCondensed.ttf"
+CAPTION_EDGE_IN = 0.15          # text keeps this far from the paper edge; labs trim a little
+CAPTION_GAP_IN = 0.08           # and this far from the photo
+CAPTION_FONT_PT = 10.0
+CAPTION_MIN_FONT_PT = 6.5
+CAPTION_LINE_SPACING = 1.2
+CAPTION_MAX_STRIP_IN = 1.5      # never take more than this from the photo...
+CAPTION_MAX_STRIP_FRACTION = 0.2  # ...or this share of a small print
+MAX_CAPTION_CHARS = 1000
+ELLIPSIS = "\u2026"
 
 
 class ImagingError(ValueError):
@@ -157,6 +171,13 @@ class Adjustments:
     allow_enlarge: bool = True      # upscale sources smaller than the target
     fmt: str = "jpeg"
     crop: Optional[Crop] = None
+    # Caption in the border padding leaves: which of Immich's facts to print,
+    # or the user's own text for this photo (None means "use Immich's").
+    caption: bool = False
+    caption_date: bool = True
+    caption_description: bool = True
+    caption_people: bool = True
+    caption_text: Optional[str] = None
 
     # ---------- (de)serialisation ----------
 
@@ -198,6 +219,14 @@ class Adjustments:
         if value.get("allow_enlarge") is not None:
             allow_enlarge = bool(value["allow_enlarge"])
 
+        def flag(key: str, current: bool) -> bool:
+            return current if value.get(key) is None else bool(value[key])
+
+        caption_text = adj.caption_text
+        if "caption_text" in value:
+            raw_text = value["caption_text"]
+            caption_text = None if raw_text is None else str(raw_text)[:MAX_CAPTION_CHARS]
+
         out = Adjustments(
             width_in=num("width_in", adj.width_in, 0.5, 60.0),
             height_in=num("height_in", adj.height_in, 0.5, 60.0),
@@ -209,6 +238,11 @@ class Adjustments:
             allow_enlarge=allow_enlarge,
             fmt=choice("fmt", adj.fmt, FORMAT_CHOICES),
             crop=crop,
+            caption=flag("caption", adj.caption),
+            caption_date=flag("caption_date", adj.caption_date),
+            caption_description=flag("caption_description", adj.caption_description),
+            caption_people=flag("caption_people", adj.caption_people),
+            caption_text=caption_text,
         )
         w, h = out.target_pixels()
         if w > MAX_PIXELS_PER_SIDE or h > MAX_PIXELS_PER_SIDE:
@@ -336,18 +370,274 @@ def _fit_crop(
     return image.crop((left, top, left + target_w, top + target_h))
 
 
-def render(source: Image.Image, adj: Adjustments, scale: float = 1.0) -> Image.Image:
+# ---------- captions ----------
+
+def _quarter_turns(rotate: str, upright_landscape: bool) -> int:
+    """Counter-clockwise quarter turns `_apply_rotation` gives this photo."""
+    if rotate == "auto":
+        return 1 if upright_landscape else 0
+    return {"ccw": 1, "180": 2, "cw": 3}.get(rotate, 0)
+
+
+@lru_cache(maxsize=32)
+def _caption_font(px: int) -> ImageFont.FreeTypeFont:
+    return ImageFont.truetype(str(CAPTION_FONT_PATH), max(1, px))
+
+
+def _wrap(text: str, font: ImageFont.FreeTypeFont, width: float) -> List[str]:
+    lines: List[str] = []
+    for paragraph in text.splitlines():
+        words = paragraph.split()
+        current = ""
+        for word in words:
+            candidate = word if not current else current + " " + word
+            if font.getlength(candidate) <= width:
+                current = candidate
+                continue
+            if current:
+                lines.append(current)
+            # A single word wider than the line (a URL, say) breaks by character.
+            while len(word) > 1 and font.getlength(word) > width:
+                cut = len(word) - 1
+                while cut > 1 and font.getlength(word[:cut]) > width:
+                    cut -= 1
+                lines.append(word[:cut])
+                word = word[cut:]
+            current = word
+        if current:
+            lines.append(current)
+    return lines
+
+
+def _truncate(
+    lines: List[str], max_lines: int, font: ImageFont.FreeTypeFont, width: float
+) -> Tuple[List[str], bool]:
+    if len(lines) <= max_lines:
+        return lines, False
+    kept = lines[: max(1, max_lines)]
+    last = kept[-1]
+    while last and font.getlength(last + ELLIPSIS) > width:
+        last = last[:-1].rstrip()
+    kept[-1] = last + ELLIPSIS
+    return kept, True
+
+
+@dataclass(frozen=True)
+class CaptionLayout:
+    """Where the photo and its caption go on the canvas."""
+
+    canvas: Tuple[int, int]
+    photo_box: Tuple[int, int, int, int]   # left, top, width, height
+    edge: str                              # right | left | bottom | top
+    strip: int                             # caption strip: photo edge to paper edge
+    lines: Tuple[str, ...]
+    font_px: int
+    line_height: int
+    edge_px: int
+    gap_px: int
+    step: str                              # centred | slid | shrunk
+    truncated: bool = False
+
+    def scaled(self, factor: float) -> CaptionLayout:
+        """The same layout for a smaller proof - identical line breaks."""
+        def size(value: float) -> int:
+            return max(1, int(round(value * factor)))
+
+        left, top, width, height = self.photo_box
+        return replace(
+            self,
+            canvas=(size(self.canvas[0]), size(self.canvas[1])),
+            photo_box=(
+                int(round(left * factor)), int(round(top * factor)), size(width), size(height)
+            ),
+            strip=size(self.strip),
+            font_px=size(self.font_px),
+            line_height=size(self.line_height),
+            edge_px=int(round(self.edge_px * factor)),
+            gap_px=int(round(self.gap_px * factor)),
+        )
+
+
+def _fit_within(
+    size: Tuple[int, int], box: Tuple[int, int], allow_enlarge: bool
+) -> Tuple[int, int]:
+    factor = min(box[0] / size[0], box[1] / size[1])
+    if not allow_enlarge:
+        factor = min(factor, 1.0)
+    return max(1, int(round(size[0] * factor))), max(1, int(round(size[1] * factor)))
+
+
+def layout_caption(
+    photo_size: Tuple[int, int],
+    canvas: Tuple[int, int],
+    text: str,
+    dpi: float,
+    turns: int = 0,
+    allow_enlarge: bool = True,
+) -> CaptionLayout:
+    """Place a caption in the border padding creates, keeping the photo as large as possible.
+
+    The caption goes in whichever border the photo leaves: down the right edge
+    (text turned counter-clockwise, so a landscape photo turned onto portrait
+    paper reads it underneath once the print is turned back) or along the
+    bottom. Photos turned clockwise or upside down mirror that. Then, cheapest
+    first: keep the photo centred; slide it away from the caption; shrink the
+    font; shrink the photo just enough; and finally cut the text off.
+    """
+    width, height = canvas
+
+    def px(inches: float) -> int:
+        return int(round(inches * dpi))
+
+    edge_px, gap_px = px(CAPTION_EDGE_IN), px(CAPTION_GAP_IN)
+    fit_w, fit_h = _fit_within(photo_size, canvas, allow_enlarge)
+    side_space, end_space = width - fit_w, height - fit_h
+    along_sides = side_space >= end_space
+    turns %= 4
+    if along_sides:
+        edge = "left" if turns in (2, 3) else "right"
+        run, space, across = height, side_space, width
+    else:
+        edge = "top" if turns == 2 else "bottom"
+        run, space, across = width, end_space, height
+    line_width = max(1, run - 2 * edge_px)
+    max_strip = max(
+        edge_px + gap_px + 1,
+        min(px(CAPTION_MAX_STRIP_IN), int(across * CAPTION_MAX_STRIP_FRACTION)),
+    )
+
+    def measure(point_size: float):
+        font_px = max(1, int(round(point_size / 72.0 * dpi)))
+        line_height = max(1, int(round(font_px * CAPTION_LINE_SPACING)))
+        lines = _wrap(text, _caption_font(font_px), line_width)
+        return font_px, line_height, lines, edge_px + gap_px + len(lines) * line_height
+
+    point_size = CAPTION_FONT_PT
+    font_px, line_height, lines, need = measure(point_size)
+    while need > space and point_size > CAPTION_MIN_FONT_PT:
+        point_size = max(CAPTION_MIN_FONT_PT, point_size - 0.5)
+        font_px, line_height, lines, need = measure(point_size)
+
+    truncated = False
+    limit = max(max_strip, space)
+    if need > limit:
+        max_lines = max(1, (limit - edge_px - gap_px) // line_height)
+        lines, truncated = _truncate(lines, max_lines, _caption_font(font_px), line_width)
+        need = edge_px + gap_px + len(lines) * line_height
+
+    if need <= space:
+        photo_w, photo_h = fit_w, fit_h
+        if need * 2 <= space:
+            step = "centred"
+            left, top = (width - fit_w) // 2, (height - fit_h) // 2
+        else:
+            step = "slid"
+            left, top = (width - fit_w) // 2, (height - fit_h) // 2
+            if edge == "right":
+                left = width - need - fit_w
+            elif edge == "left":
+                left = need
+            elif edge == "bottom":
+                top = height - need - fit_h
+            else:
+                top = need
+    else:
+        step = "shrunk"
+        if along_sides:
+            photo_w, photo_h = _fit_within(photo_size, (width - need, height), allow_enlarge)
+            left = (width - need - photo_w) // 2 + (need if edge == "left" else 0)
+            top = (height - photo_h) // 2
+        else:
+            photo_w, photo_h = _fit_within(photo_size, (width, height - need), allow_enlarge)
+            left = (width - photo_w) // 2
+            top = (height - need - photo_h) // 2 + (need if edge == "top" else 0)
+
+    strip = {
+        "right": width - (left + photo_w),
+        "left": left,
+        "bottom": height - (top + photo_h),
+        "top": top,
+    }[edge]
+    return CaptionLayout(
+        canvas=(width, height),
+        photo_box=(left, top, photo_w, photo_h),
+        edge=edge,
+        strip=strip,
+        lines=tuple(lines),
+        font_px=font_px,
+        line_height=line_height,
+        edge_px=edge_px,
+        gap_px=gap_px,
+        step=step,
+        truncated=truncated,
+    )
+
+
+def _text_colour(background: Tuple[int, int, int]) -> Tuple[int, int, int]:
+    r, g, b = background
+    return (32, 32, 32) if 0.299 * r + 0.587 * g + 0.114 * b >= 140 else (238, 238, 238)
+
+
+def _draw_caption(photo: Image.Image, layout: CaptionLayout, background) -> Image.Image:
+    width, height = layout.canvas
+    left, top, photo_w, photo_h = layout.photo_box
+    canvas = Image.new("RGB", (width, height), background)
+    if photo.size != (photo_w, photo_h):
+        photo = photo.resize((photo_w, photo_h), LANCZOS)
+    canvas.paste(photo, (left, top))
+
+    # Lay the lines out as ordinary horizontal text, first line nearest the
+    # photo, then turn the band to fit its edge.
+    run = height if layout.edge in ("right", "left") else width
+    strip = max(1, layout.strip)
+    band = Image.new("RGB", (run, strip), background)
+    draw = ImageDraw.Draw(band)
+    font = _caption_font(layout.font_px)
+    colour = _text_colour(background)
+    for index, line in enumerate(layout.lines):
+        draw.text(
+            (layout.edge_px, layout.gap_px + index * layout.line_height),
+            line, font=font, fill=colour,
+        )
+    if layout.edge == "right":
+        canvas.paste(band.transpose(Image.Transpose.ROTATE_90), (width - strip, 0))
+    elif layout.edge == "left":
+        canvas.paste(band.transpose(Image.Transpose.ROTATE_270), (0, 0))
+    elif layout.edge == "bottom":
+        canvas.paste(band, (0, height - strip))
+    else:
+        canvas.paste(band.transpose(Image.Transpose.ROTATE_180), (0, 0))
+    return canvas
+
+
+def render(
+    source: Image.Image, adj: Adjustments, scale: float = 1.0, caption: Optional[str] = None
+) -> Image.Image:
     """Run the pipeline and return the finished RGB image.
 
     `scale` renders a proportionally smaller version (used for previews); the
-    geometry is identical, only the pixel count differs.
+    geometry is identical, only the pixel count differs. A non-blank `caption`
+    is printed in the border, which means the photo is always padded, never
+    cropped to fill.
     """
     background = parse_color(adj.background)
     image = ImageOps.exif_transpose(source) or source
     image = _to_srgb_rgb(image, background)
+    upright_landscape = image.width > image.height
     image = _apply_rotation(image, adj.rotate)
     if adj.crop is not None:
         image = _apply_crop(image, adj.crop)
+
+    text = (caption or "").strip()
+    if text:
+        # Laid out at full print resolution so a proof wraps exactly like the file.
+        layout = layout_caption(
+            image.size, adj.target_pixels(), text, adj.dpi,
+            _quarter_turns(adj.rotate, upright_landscape), adj.allow_enlarge,
+        )
+        if scale != 1.0:
+            layout = layout.scaled(scale)
+        return _draw_caption(image, layout, background)
 
     target_w, target_h = adj.target_pixels()
     if scale != 1.0:
@@ -375,19 +665,21 @@ def encode(image: Image.Image, adj: Adjustments) -> bytes:
     return buf.getvalue()
 
 
-def prepare(data: bytes, adj: Adjustments) -> bytes:
+def prepare(data: bytes, adj: Adjustments, caption: Optional[str] = None) -> bytes:
     """Render and encode raw source bytes in one step."""
     with open_image(data) as source:
-        rendered = render(source, adj)
+        rendered = render(source, adj, caption=caption)
     return encode(rendered, adj)
 
 
-def preview(data: bytes, adj: Adjustments, max_edge: int = 900) -> bytes:
+def preview(
+    data: bytes, adj: Adjustments, max_edge: int = 900, caption: Optional[str] = None
+) -> bytes:
     """Render a small, fast, visually identical proof of `prepare`."""
     target_w, target_h = adj.target_pixels()
     scale = min(1.0, max_edge / max(target_w, target_h))
     with open_image(data) as source:
-        rendered = render(source, adj, scale=scale)
+        rendered = render(source, adj, scale=scale, caption=caption)
     buf = io.BytesIO()
     rendered.save(buf, format="JPEG", quality=82, optimize=True)
     return buf.getvalue()

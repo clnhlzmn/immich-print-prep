@@ -11,6 +11,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
+from .captions import compose, resolve_source
 from .context import AppContext, Prefs, render_name_template
 from .imaging import Adjustments, ImagingError, UnsupportedImageError, prepare
 from .immich import BulkResult, ImmichClient, ImmichError
@@ -54,6 +55,7 @@ async def run_prepare_job(
     manifest: List[str] = []
     succeeded_ids: List[str] = []
     renditions: List[str] = []
+    caption_notes: List[str] = []
     done = 0
 
     client = ctx.client(username)
@@ -67,33 +69,41 @@ async def run_prepare_job(
 
     async def one(
         index: int, item: Dict[str, Any]
-    ) -> Optional[Tuple[int, str, bytes, Adjustments, bool]]:
+    ) -> Optional[Tuple[int, str, bytes, Adjustments, bool, Optional[str]]]:
         asset_id = item["asset_id"]
         info = item.get("info") or {}
         adj = item["adjustments"]
+        label = info.get("filename") or asset_id
         from_rendition = False
+        caption: Optional[str] = None
         try:
             async with semaphore:
+                if adj.caption:
+                    # Fresh from Immich, so a description edited since the
+                    # proof was drawn still makes it onto the print.
+                    source = await resolve_source(client, asset_id)
+                    caption = compose(source, adj) or None
+                    caption_notes.extend(source.notes)
                 data = await client.original(asset_id)
             try:
-                rendered = await loop.run_in_executor(ctx.executor, prepare, data, adj)
+                rendered = await loop.run_in_executor(ctx.executor, prepare, data, adj, caption)
             except UnsupportedImageError:
                 # Camera raw, or HEIC on a build without HEIF support: Immich
                 # already keeps a JPEG of every asset, so print that instead of
                 # dropping the photo from the set.
                 async with semaphore:
                     data = await client.rendition(asset_id)
-                rendered = await loop.run_in_executor(ctx.executor, prepare, data, adj)
+                rendered = await loop.run_in_executor(ctx.executor, prepare, data, adj, caption)
                 from_rendition = True
         except ImmichError as exc:
-            failures.append((info.get("filename") or asset_id, exc.message))
+            failures.append((label, exc.message))
             return None
         except (ImagingError, OSError, ValueError) as exc:
-            failures.append((info.get("filename") or asset_id, str(exc)))
+            failures.append((label, str(exc)))
             return None
-        stem = safe_stem(info.get("filename") or asset_id)
+        stem = safe_stem(label)
         name = "%03d-%s%s" % (index + 1, stem, adj.extension())
-        return index, name, rendered, adj, from_rendition
+        return index, name, rendered, adj, from_rendition, caption
 
     used_names = set()
     try:
@@ -104,7 +114,7 @@ async def run_prepare_job(
                     result = await future
                     done += 1
                     if result is not None:
-                        index, name, data, adj, from_rendition = result
+                        index, name, data, adj, from_rendition, caption = result
                         while name in used_names:  # two sources with one name
                             stem, _, ext = name.rpartition(".")
                             name = "%s_%d.%s" % (stem, index, ext)
@@ -116,7 +126,7 @@ async def run_prepare_job(
                         if from_rendition:
                             renditions.append(name)
                         manifest.append(
-                            "%s\t%s\t%.10gx%.10g in @ %d dpi\t%s\t%s%s"
+                            "%s\t%s\t%.10gx%.10g in @ %d dpi\t%s\t%s%s%s"
                             % (
                                 name,
                                 items[index]["info"].get("filename") or items[index]["asset_id"],
@@ -124,6 +134,7 @@ async def run_prepare_job(
                                 "crop" if adj.fit == "crop" else "pad %s" % adj.background,
                                 items[index]["asset_id"],
                                 "\tfrom Immich JPEG rendition" if from_rendition else "",
+                                "\tcaption: %s" % caption.replace("\n", " / ") if caption else "",
                             )
                         )
                     ctx.db.update_job(
@@ -137,7 +148,9 @@ async def run_prepare_job(
 
             archive.writestr(
                 "print-set-manifest.txt",
-                _manifest_text(zip_name, moment, manifest, failures, renditions),
+                _manifest_text(
+                    zip_name, moment, manifest, failures, renditions, sorted(set(caption_notes))
+                ),
             )
     except asyncio.CancelledError:
         zip_path.unlink(missing_ok=True)
@@ -153,6 +166,8 @@ async def run_prepare_job(
         "failures": [{"file": name, "error": error} for name, error in failures],
         "prepared": len(items) - len(failures),
         "from_rendition": renditions,
+        # Distinct problems only; the same missing permission affects every photo.
+        "caption_notes": sorted(set(caption_notes)),
     }
 
     # Record the set back in Immich, if the user asked for it.
@@ -243,6 +258,7 @@ def _manifest_text(
     rows: List[str],
     failures: List[Tuple[str, str]],
     renditions: Optional[List[str]] = None,
+    caption_notes: Optional[List[str]] = None,
 ) -> str:
     lines = [
         "%s" % zip_name,
@@ -257,6 +273,9 @@ def _manifest_text(
             "Printed from Immich's JPEG rendition rather than the original file"
             " (%d): %s" % (len(renditions), ", ".join(sorted(renditions))),
         ])
+    if caption_notes:
+        lines.extend(["", "Caption notes:"])
+        lines.extend("  %s" % note for note in caption_notes)
     if failures:
         lines.extend(["", "Failed (%d):" % len(failures)])
         lines.extend("%s\t%s" % (name, error) for name, error in failures)

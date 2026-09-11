@@ -59,6 +59,7 @@ export const api = {
     clearSelection: () => request("/api/selection/clear", { method: "POST", body: {} }),
     setAdjustments: (body) => request("/api/selection/adjustments", { method: "PUT", body }),
     geometry: (id, params) => request(`/api/selection/${id}/geometry`, { params }),
+    caption: (id, params) => request(`/api/selection/${id}/caption`, { params }),
 
     // `options` carries this set's album/tag choices; omitted keys use the saved settings.
     prepare: (ids, options = {}) =>

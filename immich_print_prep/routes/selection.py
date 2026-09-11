@@ -3,11 +3,13 @@
 from __future__ import annotations
 
 import asyncio
+from dataclasses import replace
 from typing import Any, Dict, List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 from pydantic import BaseModel, Field
 
+from ..captions import CaptionSource, caption_parts, compose, resolve_source
 from ..context import AppContext
 from ..deps import current_user, get_ctx, immich_client, require_json
 from ..imaging import (
@@ -178,19 +180,20 @@ def set_adjustments(
     except ImagingError as exc:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, str(exc)) from exc
 
-    # A crop rectangle only belongs to the photo it was drawn on. An edit aimed
-    # at one photo carries its crop; a sweep over the whole set leaves each
-    # photo's own crop alone.
+    # A crop rectangle and a hand-written caption only belong to the photo they
+    # were made for. An edit aimed at one photo carries them; a sweep over the
+    # whole set leaves each photo's own alone.
     payload = merged.to_dict()
     if targeted and len(ids) == 1:
         ctx.db.set_adjustments(username, ids, payload)
     else:
-        payload["crop"] = None
         for asset_id in ids:
             item = ctx.db.get_selection_item(username, asset_id)
             existing = (item or {}).get("adjustments") or {}
             ctx.db.set_adjustments(
-                username, [asset_id], dict(payload, crop=existing.get("crop"))
+                username,
+                [asset_id],
+                dict(payload, crop=existing.get("crop"), caption_text=existing.get("caption_text")),
             )
     return _payload(ctx, username)
 
@@ -227,6 +230,9 @@ def _adjustments_from_query(
 def _query_overrides(
     rotate: Optional[str], fit: Optional[str], width_in: Optional[float],
     height_in: Optional[float], background: Optional[str], crop: Optional[str],
+    caption: Optional[bool] = None, caption_date: Optional[bool] = None,
+    caption_description: Optional[bool] = None, caption_people: Optional[bool] = None,
+    caption_text: Optional[str] = None, caption_auto: Optional[bool] = None,
 ) -> Dict[str, Any]:
     overrides: Dict[str, Any] = {}
     for key, value in (
@@ -235,6 +241,17 @@ def _query_overrides(
     ):
         if value is not None:
             overrides[key] = value
+    for key, flag in (
+        ("caption", caption), ("caption_date", caption_date),
+        ("caption_description", caption_description), ("caption_people", caption_people),
+    ):
+        if flag is not None:
+            overrides[key] = flag
+    # caption_auto asks for Immich's text even if the photo has its own saved.
+    if caption_auto:
+        overrides["caption_text"] = None
+    elif caption_text is not None:
+        overrides["caption_text"] = caption_text
     if crop is not None:
         if crop in ("", "none"):
             overrides["crop"] = None
@@ -249,6 +266,21 @@ def _query_overrides(
     return overrides
 
 
+async def _caption_source(
+    ctx: AppContext, username: str, asset_id: str, fresh: bool = False
+) -> CaptionSource:
+    if not fresh:
+        cached = ctx.caption_source_get(username, asset_id)
+        if cached is not None:
+            return cached
+    client = ctx.client(username)
+    if client is None:
+        raise HTTPException(status.HTTP_409_CONFLICT, "no Immich API key configured")
+    source = await resolve_source(client, asset_id)
+    ctx.caption_source_put(username, asset_id, source)
+    return source
+
+
 @router.get("/{asset_id}/preview")
 async def preview_asset(
     asset_id: str,
@@ -258,18 +290,30 @@ async def preview_asset(
     height_in: Optional[float] = Query(default=None),
     background: Optional[str] = Query(default=None),
     crop: Optional[str] = Query(default=None),
+    caption: Optional[bool] = Query(default=None),
+    caption_date: Optional[bool] = Query(default=None),
+    caption_description: Optional[bool] = Query(default=None),
+    caption_people: Optional[bool] = Query(default=None),
+    caption_text: Optional[str] = Query(default=None, max_length=1000),
+    caption_auto: Optional[bool] = Query(default=None),
     max_edge: int = Query(default=700, ge=100, le=2000),
     username: str = Depends(current_user),
     ctx: AppContext = Depends(get_ctx),
 ):
-    """A proof of exactly what the prepared file will look like."""
-    overrides = _query_overrides(rotate, fit, width_in, height_in, background, crop)
+    """A proof of exactly what the prepared file will look like, caption included."""
+    overrides = _query_overrides(
+        rotate, fit, width_in, height_in, background, crop,
+        caption, caption_date, caption_description, caption_people, caption_text, caption_auto,
+    )
     adj = _adjustments_from_query(ctx, username, asset_id, overrides)
     data = await _source_bytes(ctx, username, asset_id)
+    text = None
+    if adj.caption:
+        text = compose(await _caption_source(ctx, username, asset_id), adj) or None
     loop = asyncio.get_event_loop()
     try:
         rendered = await loop.run_in_executor(
-            ctx.executor, render_preview, data, adj, max_edge
+            ctx.executor, render_preview, data, adj, max_edge, text
         )
     except (ImagingError, OSError) as exc:
         raise HTTPException(
@@ -278,6 +322,40 @@ async def preview_asset(
     return Response(
         rendered, media_type="image/jpeg", headers={"Cache-Control": "private, max-age=300"}
     )
+
+
+@router.get("/{asset_id}/caption")
+async def asset_caption(
+    asset_id: str,
+    rotate: Optional[str] = Query(default=None),
+    crop: Optional[str] = Query(default=None),
+    caption_date: Optional[bool] = Query(default=None),
+    caption_description: Optional[bool] = Query(default=None),
+    caption_people: Optional[bool] = Query(default=None),
+    caption_text: Optional[str] = Query(default=None, max_length=1000),
+    caption_auto: Optional[bool] = Query(default=None),
+    username: str = Depends(current_user),
+    ctx: AppContext = Depends(get_ctx),
+):
+    """Immich's caption for this photo, for the editor to show and let the user edit.
+
+    Rotation and crop matter: the people line is ordered as the photo is viewed
+    upright and leaves out anyone the crop removes.
+    """
+    overrides = _query_overrides(
+        rotate, None, None, None, None, crop,
+        None, caption_date, caption_description, caption_people, caption_text, caption_auto,
+    )
+    adj = _adjustments_from_query(ctx, username, asset_id, overrides)
+    source = await _caption_source(ctx, username, asset_id, fresh=True)
+    from_immich = replace(adj, caption_text=None)
+    return {
+        "auto": compose(source, from_immich),
+        "override": adj.caption_text,
+        "caption": compose(source, adj),
+        "parts": caption_parts(source, from_immich),
+        "notes": source.notes,
+    }
 
 
 @router.get("/{asset_id}/geometry")

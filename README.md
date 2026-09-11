@@ -83,6 +83,7 @@ permissions. This app needs:
 | `tag.read` | *(optional)* browse by tag |
 | `album.create`, `albumAsset.create` | *(optional)* record a download as a new album |
 | `tag.create`, `tag.asset` | *(optional)* tag what you downloaded |
+| `face.read` | *(optional)* name people left to right in captions |
 
 Note that `user.read` is **not** required — the app never needs to read your
 Immich profile, and a key saves fine without it (the settings panel just cannot
@@ -156,6 +157,39 @@ took that route.
 
 The zip also contains `print-set-manifest.txt`, listing each output file, its
 source, and the settings used.
+
+## Captions
+
+Switch on **Caption in the border** (in the print set toolbar, your defaults,
+or one photo's Adjust dialog) to print up to three lines beside each photo:
+
+- **Date & time** — when the photo was taken, as `YYYY-MM-DD hh:mm:ss TZ` in the
+  time zone Immich recorded for it (`CDT`, or `UTC+05:30` for zones without an
+  abbreviation). If Immich has no zone for a photo, the camera's clock is
+  printed with no zone rather than a guessed one.
+- **Description** — the photo's description in Immich, fetched when you click
+  Prepare, so edits made in Immich since are included.
+- **People** — `From left to right: Alice, unknown, Bob`, as the photo is viewed
+  upright. Unnamed faces keep an `unknown` slot so the order stays true, unless
+  they are small enough to be strangers in the background; anyone your crop
+  removes is left out. Needs the `face.read` permission; without it the names
+  are listed with no order, as `With: …`.
+
+In any photo's Adjust dialog you can rewrite its caption for that print only;
+**Use Immich's text** puts the generated one back.
+
+**Where it goes.** The caption sits in the border padding already leaves, so in
+the common case the photo keeps its full size. For a 2:3 photo on 8×10 that is
+the right-hand edge, with the text turned counter-clockwise: a landscape photo
+reads it underneath once the print is turned to landscape, and a portrait photo
+reads it sideways. Square photos are captioned along the bottom. When a caption
+does not fit, the steps are, cheapest first: slide the photo away from the
+caption; shrink the font to a readable minimum; shrink the photo just enough;
+and finally cut the text off with "…". Captions always pad the photo, never
+crop it to fill.
+
+The caption font is DejaVu Sans Condensed (Latin, Greek and Cyrillic; no emoji
+or CJK), bundled under its own licence in `immich_print_prep/fonts/`.
 
 ## Development
 

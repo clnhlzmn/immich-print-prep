@@ -463,3 +463,95 @@ def test_set_names_use_the_browsers_clock_not_the_servers(signed_in, library, im
 def test_an_impossible_time_zone_offset_is_refused(signed_in, library):
     signed_in.post("/api/selection/add", json={"assets": [{"id": library[0]}]})
     assert signed_in.post("/api/prepare", json={"tz_offset_minutes": 5000}).status_code == 422
+
+
+# ---------- captions ----------
+
+@pytest.fixture
+def captioned(immich):
+    """A landscape photo with everything a caption can use."""
+    return immich.add_asset(
+        "lake.jpg", 3000, 2000,
+        description="Fourth of July at the lake",
+        taken_at="2026-07-04T19:30:05.000Z",
+        time_zone="America/Chicago",
+        faces=[{"name": "Bob", "cx": 0.70}, {"name": "Alice", "cx": 0.20}, {"name": None, "cx": 0.45}],
+    )
+
+
+def _prepare_one(client, asset_id, **adjustments):
+    client.post("/api/selection/add", json={"assets": [{"id": asset_id}]})
+    client.put("/api/selection/adjustments", json={"ids": [asset_id], "adjustments": adjustments})
+    job = wait_for_job(client, client.post("/api/prepare", json={}).json()["id"])
+    assert job["status"] == "done", job
+    archive = zipfile.ZipFile(io.BytesIO(client.get(job["download_url"]).content))
+    return job, archive
+
+
+def test_a_caption_is_built_from_immich_and_printed_in_the_border(signed_in, captioned):
+    job, archive = _prepare_one(signed_in, captioned, caption=True)
+    manifest = archive.read("print-set-manifest.txt").decode()
+    assert (
+        "caption: 2026-07-04 14:30:05 CDT / Fourth of July at the lake"
+        " / From left to right: Alice, unknown, Bob"
+    ) in manifest
+    assert job["detail"]["caption_notes"] == []
+
+    photo = next(name for name in archive.namelist() if name.endswith(".jpg"))
+    image = Image.open(io.BytesIO(archive.read(photo))).convert("RGB")
+    assert image.size == (2400, 3000)
+    assert min(max(px) for px in image.crop((2220, 60, 2395, 2940)).getdata()) < 100   # text, right edge
+    assert min(min(px) for px in image.crop((5, 60, 150, 2940)).getdata()) > 240       # nothing on the left
+
+
+def test_the_users_own_caption_replaces_immichs(signed_in, captioned):
+    _, archive = _prepare_one(signed_in, captioned, caption=True, caption_text="Lake day")
+    assert "caption: Lake day\n" in archive.read("print-set-manifest.txt").decode() + "\n"
+
+
+def test_no_caption_unless_switched_on(signed_in, captioned):
+    _, archive = _prepare_one(signed_in, captioned)
+    assert "caption:" not in archive.read("print-set-manifest.txt").decode()
+
+
+def test_without_face_access_people_are_named_without_an_order(signed_in, captioned, immich):
+    immich.restricted_denies.add("face.read")
+    signed_in.put("/api/settings", json={"api_key": RESTRICTED_KEY})
+    job, archive = _prepare_one(signed_in, captioned, caption=True, caption_date=False, caption_description=False)
+    assert "caption: With: Bob, Alice" in archive.read("print-set-manifest.txt").decode()
+    assert any("face.read" in note for note in job["detail"]["caption_notes"])
+
+
+def test_the_editor_gets_immichs_caption_with_crop_and_rotation_applied(signed_in, captioned):
+    signed_in.post("/api/selection/add", json={"assets": [{"id": captioned}]})
+    info = signed_in.get("/api/selection/%s/caption" % captioned).json()
+    assert info["auto"].endswith("From left to right: Alice, unknown, Bob")
+    assert info["override"] is None
+    assert info["parts"]["capture"] == "2026-07-04 14:30:05 CDT"
+
+    # The landscape photo is turned counter-clockwise, so its left side is the
+    # bottom of the image the crop box is drawn on: cropping to that keeps Alice
+    # and the unnamed person, and loses Bob.
+    cropped = signed_in.get("/api/selection/%s/caption" % captioned, params={
+        "crop": "0,0.5,1,0.5", "caption_date": False, "caption_description": False,
+    }).json()
+    assert cropped["auto"] == "From left to right: Alice, unknown"
+
+
+def test_a_captioned_proof_renders(signed_in, captioned):
+    signed_in.post("/api/selection/add", json={"assets": [{"id": captioned}]})
+    proof = signed_in.get("/api/selection/%s/preview" % captioned, params={"caption": True, "max_edge": 400})
+    assert proof.status_code == 200
+    assert Image.open(io.BytesIO(proof.content)).size == (320, 400)
+
+
+def test_applying_settings_to_the_whole_set_keeps_each_photos_own_caption(signed_in, captioned):
+    signed_in.post("/api/selection/add", json={"assets": [{"id": captioned}]})
+    signed_in.put("/api/selection/adjustments", json={
+        "ids": [captioned], "adjustments": {"caption": True, "caption_text": "Mine"},
+    })
+    swept = signed_in.put("/api/selection/adjustments", json={
+        "adjustments": {"width_in": 5, "height_in": 7, "caption": True},
+    }).json()
+    assert swept["items"][0]["adjustments"]["caption_text"] == "Mine"
+    assert swept["items"][0]["adjustments"]["width_in"] == 5

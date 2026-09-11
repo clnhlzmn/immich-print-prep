@@ -211,3 +211,80 @@ def test_full_walkthrough(site, page):
 
             with Image.open(io.BytesIO(archive.read(photos[0]))) as image:
                 assert image.size == (1500, 2100)   # 5x7 at 300 dpi
+
+
+def _claim_and_connect(page, app):
+    page.goto(app.url)
+    page.wait_for_url("**/login")
+    page.fill("#username", "colin")
+    page.click("#submit")
+    page.wait_for_selector("text=Choose a password")
+    page.fill("#new-password", "print-me-please")
+    page.fill("#confirm-password", "print-me-please")
+    page.click("#submit")
+    page.wait_for_url(app.url + "/")
+    dialog = page.locator("#settings-dialog")
+    dialog.wait_for(state="visible")
+    dialog.locator("input[type=password]").first.fill(API_KEY)
+    dialog.get_by_role("button", name="Save key").click()
+    page.wait_for_selector("text=Connected to")
+    dialog.get_by_role("button", name="Close").click()
+
+
+def test_a_caption_can_be_rewritten_for_one_print(tmp_path, page):
+    fake = FakeImmich()
+    photo = fake.add_asset(
+        "lake.jpg", 3000, 2000,
+        description="Fourth of July at the lake",
+        taken_at="2026-07-04T19:30:05.000Z",
+        time_zone="America/Chicago",
+        faces=[{"name": "Alice", "cx": 0.25}, {"name": "Bob", "cx": 0.75}],
+    )
+    fake.add_album("Lake", [photo])
+
+    with FakeImmichServer(fake) as immich:
+        config_path = tmp_path / "config.yaml"
+        config_path.write_text(
+            "immich_url: %s\ndata_dir: %s\nusers:\n  - colin\n" % (immich.url, tmp_path / "data"),
+            encoding="utf-8",
+        )
+        with AppServer(create_app(load_config(str(config_path)))) as app:
+            _claim_and_connect(page, app)
+            page.wait_for_selector(".album-card")
+            page.click(".album-card")
+            page.wait_for_selector(".asset")
+            page.click("#btn-add-everything")
+            page.wait_for_selector("#set-count:text('1')")
+            page.click("#tab-set")
+            page.wait_for_selector(".set-card img")
+
+            # Captions on for the whole set.
+            page.locator("#set-toolbar").get_by_label("Caption in the border").check()
+            page.get_by_role("button", name="Apply to all").click()
+            page.wait_for_selector(".set-card :text('padded · caption')")
+
+            # The editor shows Immich's caption, in the photo's own time zone.
+            page.locator(".set-card").first.get_by_role("button", name="Adjust").click()
+            editor = page.locator("#editor-dialog")
+            editor.wait_for(state="visible")
+            page.wait_for_function(
+                "() => (document.querySelector('#editor-dialog textarea') || {}).value"
+                "?.includes('2026-07-04 14:30:05 CDT')"
+            )
+            box = editor.locator("textarea")
+            assert box.input_value() == (
+                "2026-07-04 14:30:05 CDT\nFourth of July at the lake\nFrom left to right: Alice, Bob"
+            )
+            assert not editor.get_by_role("button", name="Use Immich's text").is_visible()
+
+            box.fill("Lake day with Alice and Bob")
+            assert editor.get_by_role("button", name="Use Immich's text").is_visible()
+            editor.get_by_role("button", name="Save").click()
+            editor.wait_for(state="hidden")
+
+            with page.expect_download(timeout=60000) as download_info:
+                page.click("#btn-prepare")
+                page.wait_for_selector("text=Download zip", timeout=60000)
+            with zipfile.ZipFile(download_info.value.path()) as archive:
+                manifest = archive.read("print-set-manifest.txt").decode()
+            assert "caption: Lake day with Alice and Bob" in manifest

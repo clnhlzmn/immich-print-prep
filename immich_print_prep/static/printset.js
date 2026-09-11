@@ -73,7 +73,7 @@ function card(item) {
         el("div", { class: "meta" },
             el("div", { class: "name", title: item.info.filename || item.id }, item.info.filename || item.id),
             el("div", { class: "muted small" },
-                `${trim(adj.width_in)} × ${trim(adj.height_in)} in · ${adj.dpi} dpi · ${adj.fit === "crop" ? "cropped to fill" : "padded"}`,
+                `${trim(adj.width_in)} × ${trim(adj.height_in)} in · ${adj.dpi} dpi · ${adj.caption ? "padded · caption" : adj.fit === "crop" ? "cropped to fill" : "padded"}`,
                 item.customised ? el("span", { class: "pill", style: { marginLeft: "6px" } }, "custom") : null,
             ),
             el("div", { class: "row" },
@@ -167,6 +167,58 @@ async function openEditor(item) {
 
     const aspect = () => values.width_in / values.height_in;
 
+    // Caption: Immich's text, unless the user writes their own for this print.
+    let captionOverride = item.adjustments.caption_text ?? null;
+    let captionAuto = "";
+    const captionBox = el("textarea", {
+        rows: 4, maxlength: 1000, spellcheck: true, placeholder: "No caption on this print",
+        onInput: () => { captionOverride = captionBox.value; syncCaption(); refreshProof(); },
+    });
+    const captionNote = el("p", { class: "small muted", style: { margin: 0 } });
+    const captionReset = el("button", {
+        class: "btn small ghost",
+        onClick: () => {
+            captionOverride = null;
+            captionBox.value = captionAuto;
+            syncCaption();
+            refreshProof();
+        },
+    }, "Use Immich's text");
+    const captionField = el("fieldset", {},
+        el("legend", {}, "Caption on this print"),
+        captionBox,
+        el("div", { class: "row", style: { marginTop: "6px" } }, captionReset),
+        captionNote,
+    );
+    const syncCaption = () => {
+        captionField.hidden = !values.caption;
+        captionReset.hidden = captionOverride === null;
+    };
+    // Empty query values are dropped, so a deliberately blank caption travels as " ".
+    const captionParams = () => ({
+        caption: values.caption,
+        caption_date: values.caption_date,
+        caption_description: values.caption_description,
+        caption_people: values.caption_people,
+        ...(captionOverride === null
+            ? { caption_auto: true }
+            : { caption_text: captionOverride === "" ? " " : captionOverride }),
+    });
+    const loadCaption = debounce(async () => {
+        syncCaption();
+        if (!values.caption) return;
+        try {
+            const info = await api.caption(item.id, {
+                ...captionParams(), rotate: values.rotate, crop: cropRectParam(),
+            });
+            captionAuto = info.auto;
+            if (captionOverride === null) captionBox.value = info.auto;
+            captionNote.textContent = info.notes.join(" ");
+        } catch (error) {
+            captionNote.textContent = error.message;
+        }
+    }, 250);
+
     const refreshProof = debounce(() => {
         proof.src = imageUrl.proof(item.id, {
             max_edge: 520,
@@ -176,6 +228,7 @@ async function openEditor(item) {
             height_in: values.height_in,
             background: values.background,
             crop: cropRectParam(),
+            ...captionParams(),
             v: Date.now(),
         });
     }, 200);
@@ -199,6 +252,7 @@ async function openEditor(item) {
             if (lockCrop.checked && cropper) cropper.setAspect(aspect());
             if (rotated) { if (cropper) cropper.reset(); refreshSource(); }
             refreshProof();
+            loadCaption();      // toggles, rotation and crop all change Immich's caption
         },
     });
 
@@ -218,6 +272,7 @@ async function openEditor(item) {
                     el("button", { class: "btn small ghost", onClick: () => cropper && cropper.reset() }, "Whole photo"),
                 ),
             ),
+            captionField,
             controls.node,
         ),
     );
@@ -250,7 +305,7 @@ async function openEditor(item) {
         try {
             await api.setAdjustments({
                 ids: [item.id],
-                adjustments: { ...values, crop: rect },
+                adjustments: { ...values, crop: rect, caption_text: captionOverride },
             });
             await store.refreshSelection();
             dialog.close();
@@ -265,9 +320,10 @@ async function openEditor(item) {
         frame,
         aspect: aspect(),
         crop: item.adjustments.crop,
-        onCommit: refreshProof,
+        onCommit: () => { refreshProof(); loadCaption(); },
     });
     refreshProof();
+    loadCaption();
 }
 
 // ---------- prepare and download ----------
@@ -339,6 +395,9 @@ async function startPrepare() {
         if (detail.tag && detail.tag.added) {
             extra.append(el("p", { class: "small muted" },
                 `Tagged in Immich as: ${detail.tag.name} (${plural(detail.tag.added, "photo", "photos")})`));
+        }
+        if (detail.caption_notes && detail.caption_notes.length) {
+            extra.append(el("p", { class: "small muted" }, `Captions: ${detail.caption_notes.join("; ")}`));
         }
         if (detail.record_error) extra.append(el("p", { class: "small", style: { color: "var(--danger)" } }, `Could not record the set in Immich: ${detail.record_error}`));
         if (detail.failures && detail.failures.length) {

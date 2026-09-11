@@ -101,6 +101,29 @@ export function buildControls(initial, { compact = false, onChange = null } = {}
         onChange: () => { values.allow_enlarge = enlargeInput.checked; fire(); },
     });
 
+    // Caption in the border padding leaves; the parts come from Immich.
+    const captionParts = el("div", { class: "row caption-parts", hidden: !initial.caption });
+    const captionInput = el("input", {
+        type: "checkbox", checked: Boolean(initial.caption),
+        onChange: () => {
+            values.caption = captionInput.checked;
+            captionParts.hidden = !captionInput.checked;
+            fire();
+        },
+    });
+    const part = (key, label) => {
+        const input = el("input", {
+            type: "checkbox", checked: initial[key] !== false,
+            onChange: () => { values[key] = input.checked; fire(); },
+        });
+        return el("label", { class: "check" }, input, label);
+    };
+    captionParts.append(
+        part("caption_date", "Date & time"),
+        part("caption_description", "Description"),
+        part("caption_people", "People"),
+    );
+
     const node = el("div", { class: compact ? "controls" : "row" },
         el("label", { class: "field" }, "Print size", sizeSelect),
         customRow,
@@ -111,6 +134,8 @@ export function buildControls(initial, { compact = false, onChange = null } = {}
         el("label", { class: "field" }, "JPEG quality", qualityInput),
         el("label", { class: "field" }, "Format", formatSelect),
         el("label", { class: "check" }, enlargeInput, "Enlarge photos smaller than the print"),
+        el("label", { class: "check" }, captionInput, "Caption in the border"),
+        captionParts,
     );
 
     return { node, values: () => ({ ...values }) };

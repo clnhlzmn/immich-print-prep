@@ -61,9 +61,17 @@ class FakeImmich:
         height: int,
         fmt: str = "JPEG",
         original: Optional[bytes] = None,
+        description: Optional[str] = None,
+        taken_at: str = "2026-01-01T00:00:00.000Z",
+        time_zone: Optional[str] = None,
+        local_at: Optional[str] = None,
+        faces: Optional[List[Dict[str, Any]]] = None,
     ) -> str:
         """Add an asset. `original` overrides the stored file (e.g. camera raw
-        this server cannot decode) while Immich still renders JPEGs for it."""
+        this server cannot decode) while Immich still renders JPEGs for it.
+
+        `faces` are dicts of name (None for unnamed), cx and optionally cy, w, h
+        as fractions of the upright photo."""
         asset_id = str(uuid.uuid4())
         rendered = make_image(width, height, fmt=fmt)
         self.assets[asset_id] = {
@@ -73,11 +81,13 @@ class FakeImmich:
             "width": width,
             "height": height,
             "fileCreatedAt": "2026-01-01T00:00:00.000Z",
-            "localDateTime": "2026-01-01T00:00:00.000Z",
+            "localDateTime": local_at or taken_at,
             "isFavorite": False,
             "thumbhash": None,
             "data": original if original is not None else rendered,
             "rendition": rendered if original is not None else None,
+            "_exif": {"description": description, "dateTimeOriginal": taken_at, "timeZone": time_zone},
+            "_faces": list(faces or []),
         }
         return asset_id
 
@@ -95,7 +105,8 @@ class FakeImmich:
 
     def _public(self, asset_id: str) -> Dict[str, Any]:
         asset = dict(self.assets[asset_id])
-        asset.pop("data", None)
+        for internal in ("data", "rendition", "_exif", "_faces"):
+            asset.pop(internal, None)
         return asset
 
     # ---------- the API ----------
@@ -109,6 +120,47 @@ class FakeImmich:
                 raise HTTPException(401, "invalid api key")
             if x_api_key == RESTRICTED_KEY and permission in fake.restricted_denies:
                 raise HTTPException(403, "Missing required permission: %s" % permission)
+
+        @app.get("/api/assets/{asset_id}")
+        def asset_info(asset_id: str, x_api_key: Optional[str] = Header(default=None)):
+            auth(x_api_key, "asset.read")
+            if asset_id not in fake.assets:
+                raise HTTPException(404, "no such asset")
+            asset = fake.assets[asset_id]
+            public = fake._public(asset_id)
+            public["exifInfo"] = dict(asset["_exif"])
+            public["people"] = [
+                {"id": "person-%s" % face["name"], "name": face["name"], "isHidden": False}
+                for face in asset["_faces"] if face.get("name")
+            ]
+            return public
+
+        @app.get("/api/faces")
+        def faces(id: str = Query(...), x_api_key: Optional[str] = Header(default=None)):
+            auth(x_api_key, "face.read")
+            if id not in fake.assets:
+                raise HTTPException(404, "no such asset")
+            asset = fake.assets[id]
+            width, height = asset["width"], asset["height"]
+            out = []
+            for face in asset["_faces"]:
+                box_w, box_h = face.get("w", 0.1) * width, face.get("h", 0.15) * height
+                cx, cy = face["cx"] * width, face.get("cy", 0.5) * height
+                out.append({
+                    "id": str(uuid.uuid4()),
+                    "imageWidth": width,
+                    "imageHeight": height,
+                    "boundingBoxX1": int(cx - box_w / 2),
+                    "boundingBoxX2": int(cx + box_w / 2),
+                    "boundingBoxY1": int(cy - box_h / 2),
+                    "boundingBoxY2": int(cy + box_h / 2),
+                    "person": (
+                        {"id": "person-%s" % face["name"], "name": face["name"], "isHidden": False}
+                        if face.get("name") else None
+                    ),
+                    "sourceType": "machine-learning",
+                })
+            return out
 
         @app.get("/api/users/me")
         def me(x_api_key: Optional[str] = Header(default=None)):

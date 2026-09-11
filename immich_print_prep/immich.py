@@ -17,7 +17,9 @@ USER_AGENT = "immich-print-prep"
 # Immich API keys carry granular permissions. These are the ones this app needs;
 # the last four are only used by the optional "record the set in Immich" step.
 REQUIRED_PERMISSIONS = ("album.read", "asset.read", "asset.view", "asset.download")
-OPTIONAL_PERMISSIONS = ("tag.read", "album.create", "albumAsset.create", "tag.create", "tag.asset")
+OPTIONAL_PERMISSIONS = (
+    "tag.read", "album.create", "albumAsset.create", "tag.create", "tag.asset", "face.read",
+)
 
 
 class ImmichError(Exception):
@@ -243,6 +245,28 @@ class ImmichClient:
             if not result["items"] or (not cursor and not page):
                 break
         return out[:limit]
+
+    async def asset_details(self, asset_id: str) -> Dict[str, Any]:
+        """The facts a caption is made from. Needs `asset.read`."""
+        raw = await self._json("GET", "/assets/%s" % asset_id) or {}
+        exif = raw.get("exifInfo") or {}
+        return {
+            "description": exif.get("description"),
+            # dateTimeOriginal is the true instant; timeZone says where it was taken.
+            "dateTimeOriginal": exif.get("dateTimeOriginal") or raw.get("fileCreatedAt"),
+            "timeZone": exif.get("timeZone"),
+            "localDateTime": raw.get("localDateTime"),
+            "people": [
+                {"name": person.get("name"), "isHidden": bool(person.get("isHidden"))}
+                for person in raw.get("people") or []
+                if isinstance(person, dict)
+            ],
+        }
+
+    async def faces(self, asset_id: str) -> List[Dict[str, Any]]:
+        """Detected faces with their boxes and people. Needs `face.read`."""
+        data = await self._json("GET", "/faces", params={"id": asset_id})
+        return data if isinstance(data, list) else []
 
     async def asset(self, asset_id: str) -> Dict[str, Any]:
         return normalise_asset(await self._json("GET", "/assets/%s" % asset_id) or {})
