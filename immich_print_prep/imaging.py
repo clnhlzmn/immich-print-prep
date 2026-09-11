@@ -17,7 +17,15 @@ import re
 from dataclasses import asdict, dataclass, replace
 from typing import Any, Dict, Optional, Tuple
 
-from PIL import Image, ImageCms, ImageOps
+from PIL import Image, ImageCms, ImageOps, UnidentifiedImageError
+
+try:  # HEIC/HEIF is what phones shoot; Pillow cannot read it on its own.
+    from pillow_heif import register_heif_opener
+except ImportError:  # pragma: no cover - always installed in the image
+    HEIF_ENABLED = False
+else:
+    register_heif_opener()
+    HEIF_ENABLED = True
 
 # Pillow >= 9.1 exposes resampling filters on Image.Resampling.
 LANCZOS = Image.Resampling.LANCZOS
@@ -35,6 +43,59 @@ MAX_PIXELS_PER_SIDE = 20000
 
 class ImagingError(ValueError):
     """Raised for adjustments that cannot be applied."""
+
+
+class UnsupportedImageError(ImagingError):
+    """Raised when the bytes are not an image this build can decode.
+
+    Callers can treat this as "ask Immich for a JPEG rendition instead" rather
+    than as a lost photo.
+    """
+
+
+# Magic numbers, purely so the error message can name the format.
+_SIGNATURES = (
+    (b"\xff\xd8\xff", "JPEG"),
+    (b"\x89PNG\r\n", "PNG"),
+    (b"GIF8", "GIF"),
+    (b"II*\x00", "TIFF or camera raw"),
+    (b"MM\x00*", "TIFF or camera raw"),
+    (b"BM", "BMP"),
+)
+_FTYP_BRANDS = {
+    b"heic": "HEIC", b"heix": "HEIC", b"heim": "HEIC", b"heis": "HEIC",
+    b"hevc": "HEIC", b"mif1": "HEIC", b"msf1": "HEIC", b"heif": "HEIF",
+    b"avif": "AVIF", b"crx ": "Canon raw",
+}
+
+
+def sniff_format(data: bytes) -> str:
+    """Best guess at what these bytes are, for a legible error message."""
+    head = data[:32]
+    for signature, name in _SIGNATURES:
+        if head.startswith(signature):
+            return name
+    if head[4:8] == b"ftyp":
+        return _FTYP_BRANDS.get(head[8:12].lower(), "ISO media")
+    if head[:4] == b"RIFF" and head[8:12] == b"WEBP":
+        return "WebP"
+    return "unrecognised data"
+
+
+def open_image(data: bytes) -> Image.Image:
+    """Decode image bytes, or raise `UnsupportedImageError` naming the format."""
+    try:
+        image = Image.open(io.BytesIO(data))
+        image.load()
+        return image
+    except UnidentifiedImageError as exc:
+        kind = sniff_format(data)
+        hint = ""
+        if kind in ("HEIC", "HEIF") and not HEIF_ENABLED:
+            hint = " (this build has no HEIF support)"
+        raise UnsupportedImageError("cannot decode %s%s" % (kind, hint)) from exc
+    except OSError as exc:
+        raise UnsupportedImageError("could not read the image: %s" % exc) from exc
 
 
 @dataclass(frozen=True)
@@ -316,8 +377,7 @@ def encode(image: Image.Image, adj: Adjustments) -> bytes:
 
 def prepare(data: bytes, adj: Adjustments) -> bytes:
     """Render and encode raw source bytes in one step."""
-    with Image.open(io.BytesIO(data)) as source:
-        source.load()
+    with open_image(data) as source:
         rendered = render(source, adj)
     return encode(rendered, adj)
 
@@ -326,8 +386,7 @@ def preview(data: bytes, adj: Adjustments, max_edge: int = 900) -> bytes:
     """Render a small, fast, visually identical proof of `prepare`."""
     target_w, target_h = adj.target_pixels()
     scale = min(1.0, max_edge / max(target_w, target_h))
-    with Image.open(io.BytesIO(data)) as source:
-        source.load()
+    with open_image(data) as source:
         rendered = render(source, adj, scale=scale)
     buf = io.BytesIO()
     rendered.save(buf, format="JPEG", quality=82, optimize=True)
@@ -336,8 +395,7 @@ def preview(data: bytes, adj: Adjustments, max_edge: int = 900) -> bytes:
 
 def source_geometry(data: bytes, adj: Adjustments) -> Dict[str, Any]:
     """Size and aspect of the image *as the crop editor sees it* (post-rotate)."""
-    with Image.open(io.BytesIO(data)) as source:
-        source.load()
+    with open_image(data) as source:
         image = ImageOps.exif_transpose(source) or source
         image = _apply_rotation(image, adj.rotate)
         return {"width": image.width, "height": image.height}
@@ -349,8 +407,7 @@ def oriented_source(data: bytes, adj: Adjustments, max_edge: int = 1400) -> byte
     The crop rectangle is normalised against exactly this image, so what the
     user drags is what gets cut.
     """
-    with Image.open(io.BytesIO(data)) as source:
-        source.load()
+    with open_image(data) as source:
         image = ImageOps.exif_transpose(source) or source
         image = _to_srgb_rgb(image, parse_color(adj.background))
         image = _apply_rotation(image, adj.rotate)

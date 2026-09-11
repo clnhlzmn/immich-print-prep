@@ -7,7 +7,15 @@ import io
 import pytest
 from PIL import Image
 
-from immich_print_prep.imaging import Adjustments, ImagingError, encode, prepare, render
+from immich_print_prep.imaging import (
+    Adjustments,
+    ImagingError,
+    UnsupportedImageError,
+    encode,
+    prepare,
+    render,
+    sniff_format,
+)
 
 from fake_immich import make_image
 
@@ -100,3 +108,25 @@ def test_adjustments_layer_over_a_base():
 def test_encode_sets_dpi_for_jpeg():
     image = Image.new("RGB", (100, 125), (10, 20, 30))
     assert open_result(encode(image, Adjustments(dpi=240))).info["dpi"] == (240, 240)
+
+
+def test_heic_is_decoded_like_any_other_photo():
+    """Phones shoot HEIC, and Pillow needs pillow-heif to read it."""
+    landscape = prepare(make_image(1600, 1200, fmt="HEIF"), Adjustments())
+    image = open_result(landscape)
+    assert image.size == (2400, 3000)
+    assert image.info["dpi"] == (300, 300)
+    assert image.getpixel((5, 1500)) == (255, 255, 255)   # rotated, so padded at the sides
+
+
+def test_heic_is_recognised_by_name_in_errors():
+    heic = make_image(64, 64, fmt="HEIF")
+    assert sniff_format(heic) in ("HEIC", "HEIF")
+    assert sniff_format(b"\xff\xd8\xff\xe0rest") == "JPEG"
+    assert sniff_format(b"II*\x00raw bytes") == "TIFF or camera raw"
+
+
+def test_undecodable_bytes_raise_a_named_error():
+    with pytest.raises(UnsupportedImageError) as exc:
+        prepare(b"II*\x00 pretending to be a camera raw file", Adjustments())
+    assert "camera raw" in str(exc.value)

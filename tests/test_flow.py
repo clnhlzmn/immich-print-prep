@@ -290,3 +290,54 @@ def test_the_v0_1_0_default_is_replaced_but_a_chosen_name_is_kept(signed_in, ctx
     stale, chosen = ctx_prefs
     assert stale.album_name_template == "{datetime}-print-set"
     assert chosen.album_name_template == "prints/{date}"
+
+
+@pytest.fixture
+def odd_formats(immich):
+    """A HEIC photo, and a file this server cannot decode at all."""
+    return {
+        "heic": immich.add_asset("IMG_4021.HEIC", 4000, 3000, fmt="HEIF"),
+        "raw": immich.add_asset(
+            "DSC_0001.NEF", 3000, 4000, original=b"II*\x00 not really a raw file"
+        ),
+    }
+
+
+def test_heic_photos_come_out_of_the_zip_as_prints(signed_in, odd_formats):
+    signed_in.post("/api/selection/add", json={"assets": [{"id": odd_formats["heic"]}]})
+    job = wait_for_job(signed_in, signed_in.post("/api/prepare", json={}).json()["id"])
+    assert job["status"] == "done"
+    assert job["detail"]["failures"] == []
+
+    with zipfile.ZipFile(io.BytesIO(signed_in.get(job["download_url"]).content)) as archive:
+        photos = [name for name in archive.namelist() if name.endswith(".jpg")]
+        assert len(photos) == 1
+        with Image.open(io.BytesIO(archive.read(photos[0]))) as image:
+            assert image.size == (2400, 3000)
+            assert image.info["dpi"] == (300, 300)
+
+
+def test_an_undecodable_original_falls_back_to_the_immich_rendition(signed_in, odd_formats):
+    signed_in.post("/api/selection/add", json={"assets": [{"id": odd_formats["raw"]}]})
+    job = wait_for_job(signed_in, signed_in.post("/api/prepare", json={}).json()["id"])
+    assert job["status"] == "done"
+    assert job["detail"]["failures"] == []
+    assert len(job["detail"]["from_rendition"]) == 1
+
+    with zipfile.ZipFile(io.BytesIO(signed_in.get(job["download_url"]).content)) as archive:
+        photos = [name for name in archive.namelist() if name.endswith(".jpg")]
+        assert len(photos) == 1
+        with Image.open(io.BytesIO(archive.read(photos[0]))) as image:
+            assert image.size == (2400, 3000)
+        manifest = archive.read("print-set-manifest.txt").decode()
+        assert "from Immich JPEG rendition" in manifest
+
+
+def test_the_fallback_works_on_an_immich_without_fullsize(signed_in, immich, odd_formats):
+    """Older releases have no `fullsize` rendition; the preview one still works."""
+    immich.supports_fullsize = False
+    signed_in.post("/api/selection/add", json={"assets": [{"id": odd_formats["raw"]}]})
+    job = wait_for_job(signed_in, signed_in.post("/api/prepare", json={}).json()["id"])
+    assert job["status"] == "done", job
+    assert job["detail"]["failures"] == []
+    assert len(job["detail"]["from_rendition"]) == 1

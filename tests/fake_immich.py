@@ -19,17 +19,26 @@ RESTRICTED_KEY = "restricted-api-key"
 RESTRICTED_DENIES = {"user.read", "tag.read"}
 
 
-def make_image(width: int, height: int, colour=(200, 120, 60)) -> bytes:
+def make_image(width: int, height: int, colour=(200, 120, 60), fmt: str = "JPEG") -> bytes:
     image = Image.new("RGB", (width, height), colour)
     # A couple of blocks so orientation changes are visible in assertions.
     image.paste((20, 20, 20), (0, 0, max(1, width // 4), max(1, height // 4)))
     buf = io.BytesIO()
-    image.save(buf, format="JPEG", quality=92)
+    if fmt.upper() in ("HEIF", "HEIC"):
+        import pillow_heif
+
+        pillow_heif.register_heif_opener()
+        image.save(buf, format="HEIF", quality=80)
+    else:
+        image.save(buf, format=fmt, quality=92)
     return buf.getvalue()
 
 
 class FakeImmich:
-    def __init__(self):
+    def __init__(self, supports_fullsize: bool = True):
+        # Older Immich releases reject size=fullsize; flip this to exercise the
+        # fall back to the preview rendition.
+        self.supports_fullsize = supports_fullsize
         self.assets: Dict[str, Dict[str, Any]] = {}
         self.albums: Dict[str, Dict[str, Any]] = {}
         self.tags: Dict[str, Dict[str, Any]] = {}
@@ -39,8 +48,18 @@ class FakeImmich:
 
     # ---------- fixtures ----------
 
-    def add_asset(self, filename: str, width: int, height: int) -> str:
+    def add_asset(
+        self,
+        filename: str,
+        width: int,
+        height: int,
+        fmt: str = "JPEG",
+        original: Optional[bytes] = None,
+    ) -> str:
+        """Add an asset. `original` overrides the stored file (e.g. camera raw
+        this server cannot decode) while Immich still renders JPEGs for it."""
         asset_id = str(uuid.uuid4())
+        rendered = make_image(width, height, fmt=fmt)
         self.assets[asset_id] = {
             "id": asset_id,
             "originalFileName": filename,
@@ -51,7 +70,8 @@ class FakeImmich:
             "localDateTime": "2026-01-01T00:00:00.000Z",
             "isFavorite": False,
             "thumbhash": None,
-            "data": make_image(width, height),
+            "data": original if original is not None else rendered,
+            "rendition": rendered if original is not None else None,
         }
         return asset_id
 
@@ -179,15 +199,22 @@ class FakeImmich:
         @app.get("/api/assets/{asset_id}/thumbnail")
         def thumbnail(asset_id: str, size: str = Query(default="thumbnail"),
                       x_api_key: Optional[str] = Header(default=None)):
-            auth(x_api_key)
+            auth(x_api_key, "asset.view")
+            if size not in ("thumbnail", "preview", "fullsize"):
+                raise HTTPException(400, "unknown size")
+            if size == "fullsize" and not fake.supports_fullsize:
+                raise HTTPException(400, "size fullsize is not supported")
             if asset_id not in fake.assets:
                 raise HTTPException(404, "no such asset")
             asset = fake.assets[asset_id]
-            edge = 250 if size == "thumbnail" else 1440
-            with Image.open(io.BytesIO(asset["data"])) as image:
-                image.thumbnail((edge, edge))
+            # Immich serves JPEG renditions even for files it stores as HEIC or
+            # raw, which is exactly what the fallback path relies on.
+            source = asset["rendition"] or asset["data"]
+            with Image.open(io.BytesIO(source)) as image:
+                if size != "fullsize":
+                    image.thumbnail((250 if size == "thumbnail" else 1440,) * 2)
                 buf = io.BytesIO()
-                image.save(buf, format="JPEG")
+                image.convert("RGB").save(buf, format="JPEG")
             return Response(buf.getvalue(), media_type="image/jpeg")
 
         @app.get("/api/assets/{asset_id}/original")

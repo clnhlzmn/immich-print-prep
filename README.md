@@ -143,6 +143,14 @@ Each photo is processed in this order:
 `allow_enlarge` decides what happens to a photo smaller than the print: on by
 default it is scaled up, off it is centred on a full-size canvas instead.
 
+### Source formats
+
+JPEG, PNG, HEIC/HEIF (what phones shoot), WebP, AVIF and TIFF are decoded from
+the original file. For anything else Immich can display but this server cannot
+read — camera raw, mainly — the print is made from Immich's own full-size JPEG
+rendition rather than dropping the photo, and the manifest names the files that
+took that route.
+
 The zip also contains `print-set-manifest.txt`, listing each output file, its
 source, and the settings used.
 

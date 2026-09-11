@@ -259,6 +259,25 @@ class ImmichClient:
         response = await self._request("GET", "/assets/%s/original" % asset_id)
         return response.content
 
+    async def rendition(self, asset_id: str) -> bytes:
+        """The largest JPEG Immich can produce for an asset.
+
+        Immich renders every asset to JPEG for the web, including formats this
+        server cannot decode itself (camera raw, and HEIC on a build without
+        HEIF support). `fullsize` is full resolution; older releases do not
+        offer it, so fall back to the preview rendition.
+        """
+        last: Optional[ImmichError] = None
+        for size in ("fullsize", "preview"):
+            try:
+                data, _ = await self.thumbnail(asset_id, size)
+                return data
+            except ImmichError as exc:
+                if exc.status not in (400, 404):
+                    raise
+                last = exc
+        raise last or ImmichError("no rendition available for %s" % asset_id)
+
     # ---------- writing back ----------
 
     async def create_album(

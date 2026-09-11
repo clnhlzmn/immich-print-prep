@@ -12,7 +12,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
 from .context import AppContext, Prefs, render_name_template
-from .imaging import Adjustments, ImagingError, prepare
+from .imaging import Adjustments, ImagingError, UnsupportedImageError, prepare
 from .immich import ImmichClient, ImmichError
 
 log = logging.getLogger(__name__)
@@ -48,6 +48,7 @@ async def run_prepare_job(
     failures: List[Tuple[str, str]] = []
     manifest: List[str] = []
     succeeded_ids: List[str] = []
+    renditions: List[str] = []
     done = 0
 
     client = ctx.client(username)
@@ -61,14 +62,24 @@ async def run_prepare_job(
 
     async def one(
         index: int, item: Dict[str, Any]
-    ) -> Optional[Tuple[int, str, bytes, Adjustments]]:
+    ) -> Optional[Tuple[int, str, bytes, Adjustments, bool]]:
         asset_id = item["asset_id"]
         info = item.get("info") or {}
         adj = item["adjustments"]
+        from_rendition = False
         try:
             async with semaphore:
                 data = await client.original(asset_id)
-            rendered = await loop.run_in_executor(ctx.executor, prepare, data, adj)
+            try:
+                rendered = await loop.run_in_executor(ctx.executor, prepare, data, adj)
+            except UnsupportedImageError:
+                # Camera raw, or HEIC on a build without HEIF support: Immich
+                # already keeps a JPEG of every asset, so print that instead of
+                # dropping the photo from the set.
+                async with semaphore:
+                    data = await client.rendition(asset_id)
+                rendered = await loop.run_in_executor(ctx.executor, prepare, data, adj)
+                from_rendition = True
         except ImmichError as exc:
             failures.append((info.get("filename") or asset_id, exc.message))
             return None
@@ -77,7 +88,7 @@ async def run_prepare_job(
             return None
         stem = safe_stem(info.get("filename") or asset_id)
         name = "%03d-%s%s" % (index + 1, stem, adj.extension())
-        return index, name, rendered, adj
+        return index, name, rendered, adj, from_rendition
 
     used_names = set()
     try:
@@ -88,7 +99,7 @@ async def run_prepare_job(
                     result = await future
                     done += 1
                     if result is not None:
-                        index, name, data, adj = result
+                        index, name, data, adj, from_rendition = result
                         while name in used_names:  # two sources with one name
                             stem, _, ext = name.rpartition(".")
                             name = "%s_%d.%s" % (stem, index, ext)
@@ -97,14 +108,17 @@ async def run_prepare_job(
                         # ZIP_STORED: JPEGs do not compress, and skipping deflate
                         # keeps a large set from pinning a CPU for no gain.
                         archive.writestr(name, data)
+                        if from_rendition:
+                            renditions.append(name)
                         manifest.append(
-                            "%s\t%s\t%.10gx%.10g in @ %d dpi\t%s\t%s"
+                            "%s\t%s\t%.10gx%.10g in @ %d dpi\t%s\t%s%s"
                             % (
                                 name,
                                 items[index]["info"].get("filename") or items[index]["asset_id"],
                                 adj.width_in, adj.height_in, adj.dpi,
                                 "crop" if adj.fit == "crop" else "pad %s" % adj.background,
                                 items[index]["asset_id"],
+                                "\tfrom Immich JPEG rendition" if from_rendition else "",
                             )
                         )
                     ctx.db.update_job(
@@ -118,7 +132,7 @@ async def run_prepare_job(
 
             archive.writestr(
                 "print-set-manifest.txt",
-                _manifest_text(zip_name, moment, manifest, failures),
+                _manifest_text(zip_name, moment, manifest, failures, renditions),
             )
     except asyncio.CancelledError:
         zip_path.unlink(missing_ok=True)
@@ -133,6 +147,7 @@ async def run_prepare_job(
     detail: Dict[str, Any] = {
         "failures": [{"file": name, "error": error} for name, error in failures],
         "prepared": len(items) - len(failures),
+        "from_rendition": renditions,
     }
 
     # Record the set back in Immich, if the user asked for it.
@@ -180,6 +195,7 @@ def _manifest_text(
     moment: datetime,
     rows: List[str],
     failures: List[Tuple[str, str]],
+    renditions: Optional[List[str]] = None,
 ) -> str:
     lines = [
         "%s" % zip_name,
@@ -188,6 +204,12 @@ def _manifest_text(
         "file\tsource\tprint size\tfit\tasset id",
     ]
     lines.extend(sorted(rows))
+    if renditions:
+        lines.extend([
+            "",
+            "Printed from Immich's JPEG rendition rather than the original file"
+            " (%d): %s" % (len(renditions), ", ".join(sorted(renditions))),
+        ])
     if failures:
         lines.extend(["", "Failed (%d):" % len(failures)])
         lines.extend("%s\t%s" % (name, error) for name, error in failures)
