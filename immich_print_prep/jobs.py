@@ -13,7 +13,7 @@ from typing import Any, Dict, List, Optional, Tuple
 
 from .context import AppContext, Prefs, render_name_template
 from .imaging import Adjustments, ImagingError, UnsupportedImageError, prepare
-from .immich import ImmichClient, ImmichError
+from .immich import BulkResult, ImmichClient, ImmichError
 
 log = logging.getLogger(__name__)
 
@@ -152,18 +152,24 @@ async def run_prepare_job(
 
     # Record the set back in Immich, if the user asked for it.
     try:
+        problems = []
         if prefs.create_album and succeeded_ids:
             name = render_name_template(prefs.album_name_template, moment, len(succeeded_ids))
-            album = await client.create_album(
+            album, result = await client.create_album(
                 name, succeeded_ids, description="Prepared for printing by immich-print-prep"
             )
-            detail["album"] = {"id": album.get("id"), "name": name}
+            detail["album"] = dict(result.summary(), id=album.get("id"), name=name)
+            problems.extend(_bulk_problem("album", name, result, len(succeeded_ids)))
         if prefs.create_tag and succeeded_ids:
             name = render_name_template(prefs.tag_name_template, moment, len(succeeded_ids))
             tag = await _ensure_tag(client, name)
-            if tag.get("id"):
-                await client.tag_assets(tag["id"], succeeded_ids)
-                detail["tag"] = {"id": tag.get("id"), "name": name}
+            if not tag.get("id"):
+                raise ImmichError("Immich created no tag for %r" % name)
+            result = await client.tag_assets(tag["id"], succeeded_ids)
+            detail["tag"] = dict(result.summary(), id=tag.get("id"), name=name)
+            problems.extend(_bulk_problem("tag", name, result, len(succeeded_ids)))
+        if problems:
+            detail["record_error"] = " ".join(problems)
     except ImmichError as exc:
         detail["record_error"] = exc.message
 
@@ -177,6 +183,27 @@ async def run_prepare_job(
         size=zip_path.stat().st_size if zip_path.exists() else 0,
         detail=json.dumps(detail),
     )
+
+
+def _bulk_problem(kind: str, name: str, result: BulkResult, expected: int) -> List[str]:
+    """Turn Immich's per-asset rejections into something worth reading.
+
+    These endpoints return 200 whether or not they took the photos, so silence
+    here would mean an empty album or tag with nothing to explain it. The usual
+    reason is `no_permission`: photos the key can see but not modify, or a key
+    without the album/tag write permissions.
+    """
+    if result.added >= expected and not result.failed:
+        return []
+    if result.added == 0:
+        return [
+            "Immich created the %s %r but added none of the %d photos (%s)."
+            % (kind, name, expected, ", ".join(result.reasons) or "no reason given")
+        ]
+    return [
+        "Immich added %d of %d photos to the %s %r (%s)."
+        % (result.added, expected, kind, name, ", ".join(result.reasons) or "no reason given")
+    ]
 
 
 async def _ensure_tag(client: ImmichClient, name: str) -> Dict[str, Any]:

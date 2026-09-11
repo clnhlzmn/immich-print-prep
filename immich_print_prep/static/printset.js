@@ -318,8 +318,14 @@ async function startPrepare() {
         const link = el("a", { class: "btn primary", href: job.download_url, download: job.filename }, "Download zip");
         clear(extra).append(el("div", { class: "row", style: { marginTop: "10px" } }, link));
         const detail = job.detail || {};
-        if (detail.album) extra.append(el("p", { class: "small muted" }, `Added to a new Immich album: ${detail.album.name}`));
-        if (detail.tag) extra.append(el("p", { class: "small muted" }, `Tagged in Immich as: ${detail.tag.name}`));
+        if (detail.album && detail.album.added) {
+            extra.append(el("p", { class: "small muted" },
+                `Added to a new Immich album: ${detail.album.name} (${plural(detail.album.added, "photo", "photos")})`));
+        }
+        if (detail.tag && detail.tag.added) {
+            extra.append(el("p", { class: "small muted" },
+                `Tagged in Immich as: ${detail.tag.name} (${plural(detail.tag.added, "photo", "photos")})`));
+        }
         if (detail.record_error) extra.append(el("p", { class: "small", style: { color: "var(--danger)" } }, `Could not record the set in Immich: ${detail.record_error}`));
         if (detail.failures && detail.failures.length) {
             extra.append(el("p", { class: "small", style: { color: "var(--danger)" } },

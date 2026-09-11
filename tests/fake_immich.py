@@ -39,6 +39,12 @@ class FakeImmich:
         # Older Immich releases reject size=fullsize; flip this to exercise the
         # fall back to the preview rendition.
         self.supports_fullsize = supports_fullsize
+        # Set to a BulkIdErrorReason to make bulk adds reject assets with 200,
+        # the way Immich does for photos the key may see but not modify.
+        self.bulk_failure: Optional[str] = None
+        self.bulk_failure_after = 0
+        # Permissions RESTRICTED_KEY does not carry; tests can add to this.
+        self.restricted_denies = set(RESTRICTED_DENIES)
         self.assets: Dict[str, Dict[str, Any]] = {}
         self.albums: Dict[str, Dict[str, Any]] = {}
         self.tags: Dict[str, Dict[str, Any]] = {}
@@ -101,7 +107,7 @@ class FakeImmich:
         def auth(x_api_key: Optional[str], permission: Optional[str] = None) -> None:
             if x_api_key not in (API_KEY, RESTRICTED_KEY):
                 raise HTTPException(401, "invalid api key")
-            if x_api_key == RESTRICTED_KEY and permission in RESTRICTED_DENIES:
+            if x_api_key == RESTRICTED_KEY and permission in fake.restricted_denies:
                 raise HTTPException(403, "Missing required permission: %s" % permission)
 
         @app.get("/api/users/me")
@@ -148,11 +154,12 @@ class FakeImmich:
             return {**fake.albums[album_id], "assetCount": len(fake.album_assets[album_id])}
 
         @app.put("/api/albums/{album_id}/assets")
-        async def add_assets(album_id: str, request: Request, x_api_key: Optional[str] = Header(default=None)):
+        async def add_assets(
+            album_id: str, request: Request, x_api_key: Optional[str] = Header(default=None)
+        ):
             auth(x_api_key)
             body = await request.json()
-            fake.album_assets.setdefault(album_id, []).extend(body["ids"])
-            return [{"id": asset_id, "success": True} for asset_id in body["ids"]]
+            return fake._bulk_add(fake.album_assets.setdefault(album_id, []), body["ids"])
 
         @app.get("/api/tags")
         def tags(x_api_key: Optional[str] = Header(default=None)):
@@ -170,11 +177,12 @@ class FakeImmich:
             return fake.tags[tag_id]
 
         @app.put("/api/tags/{tag_id}/assets")
-        async def tag_assets(tag_id: str, request: Request, x_api_key: Optional[str] = Header(default=None)):
-            auth(x_api_key)
+        async def tag_assets(
+            tag_id: str, request: Request, x_api_key: Optional[str] = Header(default=None)
+        ):
+            auth(x_api_key, "tag.asset")
             body = await request.json()
-            fake.tag_assets.setdefault(tag_id, []).extend(body["ids"])
-            return [{"id": asset_id, "success": True} for asset_id in body["ids"]]
+            return fake._bulk_add(fake.tag_assets.setdefault(tag_id, []), body["ids"])
 
         @app.post("/api/search/metadata")
         async def search_metadata(request: Request, x_api_key: Optional[str] = Header(default=None)):
@@ -225,6 +233,18 @@ class FakeImmich:
             return Response(fake.assets[asset_id]["data"], media_type="image/jpeg")
 
         return app
+
+    def _bulk_add(self, target: List[str], asset_ids: List[str]) -> List[Dict[str, Any]]:
+        """Immich answers 200 with a per-asset verdict, not an all-or-nothing error."""
+        out = []
+        for index, asset_id in enumerate(asset_ids):
+            rejected = self.bulk_failure and index >= self.bulk_failure_after
+            if rejected:
+                out.append({"id": asset_id, "success": False, "error": self.bulk_failure})
+            else:
+                target.append(asset_id)
+                out.append({"id": asset_id, "success": True})
+        return out
 
     def _page(self, ids: List[str], body: Dict[str, Any]) -> Dict[str, Any]:
         size = int(body.get("size") or 100)

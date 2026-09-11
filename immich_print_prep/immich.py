@@ -282,31 +282,77 @@ class ImmichClient:
 
     async def create_album(
         self, name: str, asset_ids: Optional[List[str]] = None, description: str = ""
-    ) -> Dict[str, Any]:
+    ) -> Tuple[Dict[str, Any], BulkResult]:
+        """Create an album and fill it, reporting what Immich actually took."""
         body: Dict[str, Any] = {"albumName": name}
         if description:
             body["description"] = description
-        # Immich caps how many ids it will take at creation time; add the rest
-        # in batches below.
-        first, rest = (asset_ids or [])[:500], (asset_ids or [])[500:]
-        if first:
-            body["assetIds"] = first
         album = await self._json("POST", "/albums", json=body) or {}
         album_id = album.get("id")
-        if album_id and rest:
-            await self.add_to_album(album_id, rest)
-        return album
+        if not album_id:
+            raise ImmichError("Immich created no album for %r" % name)
+        return album, await self.add_to_album(album_id, asset_ids or [])
 
-    async def add_to_album(self, album_id: str, asset_ids: List[str]) -> None:
+    async def add_to_album(self, album_id: str, asset_ids: List[str]) -> BulkResult:
+        result = BulkResult()
         for batch in _batched(asset_ids, 500):
-            await self._json("PUT", "/albums/%s/assets" % album_id, json={"ids": batch})
+            result.absorb(
+                await self._json("PUT", "/albums/%s/assets" % album_id, json={"ids": batch})
+            )
+        return result
 
     async def create_tag(self, name: str) -> Dict[str, Any]:
         return await self._json("POST", "/tags", json={"name": name}) or {}
 
-    async def tag_assets(self, tag_id: str, asset_ids: List[str]) -> None:
+    async def tag_assets(self, tag_id: str, asset_ids: List[str]) -> BulkResult:
+        result = BulkResult()
         for batch in _batched(asset_ids, 500):
-            await self._json("PUT", "/tags/%s/assets" % tag_id, json={"ids": batch})
+            result.absorb(
+                await self._json("PUT", "/tags/%s/assets" % tag_id, json={"ids": batch})
+            )
+        return result
+
+
+class BulkResult:
+    """What Immich did with a bulk add.
+
+    These endpoints answer 200 with one entry per asset, each carrying its own
+    `success` flag and reason - so "the tag was created but holds nothing" is a
+    successful HTTP call, and the only way to notice is to read the body.
+    """
+
+    def __init__(self) -> None:
+        self.added = 0
+        self.failed: List[Dict[str, str]] = []
+
+    def absorb(self, payload: Any) -> None:
+        if not isinstance(payload, list):
+            # Some endpoints answer {"count": n} instead of a per-id list.
+            if isinstance(payload, dict) and "count" in payload:
+                self.added += int(payload.get("count") or 0)
+            return
+        for entry in payload:
+            if not isinstance(entry, dict):
+                continue
+            if entry.get("success"):
+                self.added += 1
+            else:
+                self.failed.append(
+                    {
+                        "id": str(entry.get("id") or ""),
+                        "error": str(entry.get("error") or "unknown"),
+                    }
+                )
+
+    @property
+    def reasons(self) -> List[str]:
+        return sorted({entry["error"] for entry in self.failed})
+
+    def summary(self) -> Dict[str, Any]:
+        return {"added": self.added, "failed": len(self.failed), "reasons": self.reasons}
+
+    def __repr__(self) -> str:  # pragma: no cover - debugging aid
+        return "BulkResult(added=%d, failed=%d)" % (self.added, len(self.failed))
 
 
 def _batched(items: List[str], size: int) -> List[List[str]]:

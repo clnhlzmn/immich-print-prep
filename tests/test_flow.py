@@ -190,7 +190,10 @@ def test_prepare_download_and_record_in_immich(signed_in, library, immich):
     ]
     assert len(new_albums) == 1
     assert len(immich.album_assets[[k for k, v in immich.albums.items() if v["albumName"] == new_albums[0]][0]]) == 2
-    assert any(tag["value"].startswith("printed-") for tag in immich.tags.values())
+    tagged = [t for t in immich.tags.values() if t["value"].startswith("printed-")]
+    assert len(tagged) == 1
+    assert len(immich.tag_assets[tagged[0]["id"]]) == 2      # the tag actually holds the photos
+    assert job["detail"]["tag"]["name"] == tagged[0]["value"]
 
 
 def test_prepare_reports_failures_without_losing_the_rest(signed_in, library, immich):
@@ -341,3 +344,52 @@ def test_the_fallback_works_on_an_immich_without_fullsize(signed_in, immich, odd
     assert job["status"] == "done", job
     assert job["detail"]["failures"] == []
     assert len(job["detail"]["from_rendition"]) == 1
+
+
+def _prepare_with_tag(client, immich, album_id):
+    client.post("/api/selection/add-source", json={"album_id": album_id})
+    client.put("/api/settings", json={"create_tag": True, "tag_name_template": "printed-{date}"})
+    return wait_for_job(client, client.post("/api/prepare", json={}).json()["id"])
+
+
+def test_a_tag_immich_refuses_to_fill_is_reported(signed_in, library, immich):
+    """A bulk add answers 200 even when it takes nothing; say so out loud."""
+    immich.bulk_failure = "no_permission"
+    job = _prepare_with_tag(signed_in, immich, next(iter(immich.albums)))
+
+    assert job["status"] == "done"
+    assert job["detail"]["failures"] == []          # the photos themselves were fine
+    assert job["detail"]["tag"]["added"] == 0
+    assert job["detail"]["tag"]["reasons"] == ["no_permission"]
+    assert "added none of the 2 photos" in job["detail"]["record_error"]
+    assert "no_permission" in job["detail"]["record_error"]
+
+
+def test_a_partly_filled_tag_is_reported(signed_in, library, immich):
+    immich.bulk_failure = "not_found"
+    immich.bulk_failure_after = 1
+    job = _prepare_with_tag(signed_in, immich, next(iter(immich.albums)))
+
+    assert job["detail"]["tag"]["added"] == 1
+    assert "added 1 of 2 photos" in job["detail"]["record_error"]
+
+
+def test_a_tag_that_immich_fills_reports_no_problem(signed_in, library, immich):
+    job = _prepare_with_tag(signed_in, immich, next(iter(immich.albums)))
+    assert job["detail"]["tag"]["added"] == 2
+    assert job["detail"]["tag"]["failed"] == 0
+    assert "record_error" not in job["detail"]
+    tag_id = job["detail"]["tag"]["id"]
+    assert len(immich.tag_assets[tag_id]) == 2
+
+
+def test_a_key_without_tag_asset_permission_is_reported(signed_in, library, immich):
+    """The other way tagging fails: Immich refuses the whole call, not each asset."""
+    immich.restricted_denies.add("tag.asset")
+    signed_in.put("/api/settings", json={"api_key": RESTRICTED_KEY})
+    job = _prepare_with_tag(signed_in, immich, next(iter(immich.albums)))
+
+    assert job["status"] == "done"
+    assert job["detail"]["failures"] == []
+    assert "permission" in job["detail"]["record_error"]
+    assert "tag" not in job["detail"]
