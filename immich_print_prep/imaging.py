@@ -175,6 +175,7 @@ class Adjustments:
     # or the user's own text for this photo (None means "use Immich's").
     caption: bool = False
     caption_date: bool = True
+    caption_location: bool = True
     caption_description: bool = True
     caption_people: bool = True
     caption_text: Optional[str] = None
@@ -240,6 +241,7 @@ class Adjustments:
             crop=crop,
             caption=flag("caption", adj.caption),
             caption_date=flag("caption_date", adj.caption_date),
+            caption_location=flag("caption_location", adj.caption_location),
             caption_description=flag("caption_description", adj.caption_description),
             caption_people=flag("caption_people", adj.caption_people),
             caption_text=caption_text,

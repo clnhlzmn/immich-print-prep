@@ -120,6 +120,7 @@ export function buildControls(initial, { compact = false, onChange = null } = {}
     };
     captionParts.append(
         part("caption_date", "Date & time"),
+        part("caption_location", "Location"),
         part("caption_description", "Description"),
         part("caption_people", "People"),
     );

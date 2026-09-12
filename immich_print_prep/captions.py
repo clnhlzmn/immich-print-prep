@@ -1,4 +1,5 @@
-"""Caption text for prints: when a photo was taken, its description, and who is in it.
+"""Caption text for prints: when and where a photo was taken, its description,
+and who is in it.
 
 Everything here is pure except `resolve_source`, which asks Immich for the
 facts. Where the caption goes on the print, and drawing it, live in imaging.py.
@@ -40,6 +41,7 @@ class CaptionSource:
     """What Immich knows about a photo, before the user's toggles are applied."""
 
     capture: Optional[str] = None
+    location: Optional[str] = None
     description: Optional[str] = None
     faces: List[Face] = field(default_factory=list)
     # From the face detector's image size; decides what "auto" rotation did.
@@ -118,6 +120,25 @@ def format_capture_time(
     if wall_clock is None:
         return None
     return wall_clock.strftime("%Y-%m-%d %H:%M:%S")
+
+
+# ---------- place ----------
+
+def format_location(
+    city: Optional[str], state: Optional[str], country: Optional[str]
+) -> Optional[str]:
+    """`City, State, Country` from whichever parts Immich reverse-geocoded.
+
+    Immich fills these in from the photo's GPS fix, so a photo without one has
+    no location line at all. A part repeated by the geocoder (Singapore the
+    city in Singapore the country) is printed once.
+    """
+    parts: List[str] = []
+    for value in (city, state, country):
+        text = (value or "").strip()
+        if text and text.casefold() not in [part.casefold() for part in parts]:
+            parts.append(text)
+    return ", ".join(parts) or None
 
 
 # ---------- people ----------
@@ -220,6 +241,7 @@ def caption_parts(source: CaptionSource, adj: Any) -> Dict[str, Optional[str]]:
         description = (source.description or "").strip() or None
     return {
         "capture": source.capture if adj.caption_date else None,
+        "location": source.location if adj.caption_location else None,
         "description": description,
         "people": people,
     }
@@ -231,7 +253,7 @@ def compose(source: CaptionSource, adj: Any) -> str:
     if adj.caption_text is not None:
         return adj.caption_text.strip()
     parts = caption_parts(source, adj)
-    lines = (parts["capture"], parts["description"], parts["people"])
+    lines = (parts["capture"], parts["location"], parts["description"], parts["people"])
     return "\n".join(line for line in lines if line)
 
 
@@ -251,6 +273,9 @@ async def resolve_source(client: ImmichClient, asset_id: str) -> CaptionSource:
 
     source.capture = format_capture_time(
         details.get("dateTimeOriginal"), details.get("timeZone"), details.get("localDateTime")
+    )
+    source.location = format_location(
+        details.get("city"), details.get("state"), details.get("country")
     )
     source.description = (details.get("description") or "").strip() or None
     source.names = [

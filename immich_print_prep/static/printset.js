@@ -276,6 +276,7 @@ async function openEditor(item) {
     const captionParams = () => ({
         caption: values.caption,
         caption_date: values.caption_date,
+        caption_location: values.caption_location,
         caption_description: values.caption_description,
         caption_people: values.caption_people,
         ...(captionOverride === null

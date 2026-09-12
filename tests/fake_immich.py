@@ -6,7 +6,7 @@ import io
 import threading
 import time
 import uuid
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 import uvicorn
 from fastapi import FastAPI, Header, HTTPException, Query, Request, Response
@@ -67,10 +67,13 @@ class FakeImmich:
         taken_at: str = "2026-01-01T00:00:00.000Z",
         time_zone: Optional[str] = None,
         local_at: Optional[str] = None,
+        place: Tuple[Optional[str], Optional[str], Optional[str]] = (None, None, None),
         faces: Optional[List[Dict[str, Any]]] = None,
     ) -> str:
         """Add an asset. `original` overrides the stored file (e.g. camera raw
         this server cannot decode) while Immich still renders JPEGs for it.
+
+        `place` is the city, state and country Immich reverse-geocoded.
 
         `faces` are dicts of name (None for unnamed), cx and optionally cy, w, h
         as fractions of the upright photo."""
@@ -88,7 +91,10 @@ class FakeImmich:
             "thumbhash": None,
             "data": original if original is not None else rendered,
             "rendition": rendered if original is not None else None,
-            "_exif": {"description": description, "dateTimeOriginal": taken_at, "timeZone": time_zone},
+            "_exif": {
+                "description": description, "dateTimeOriginal": taken_at, "timeZone": time_zone,
+                "city": place[0], "state": place[1], "country": place[2],
+            },
             "_faces": list(faces or []),
         }
         return asset_id

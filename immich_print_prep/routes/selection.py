@@ -231,7 +231,8 @@ def _query_overrides(
     rotate: Optional[str], fit: Optional[str], width_in: Optional[float],
     height_in: Optional[float], background: Optional[str], crop: Optional[str],
     caption: Optional[bool] = None, caption_date: Optional[bool] = None,
-    caption_description: Optional[bool] = None, caption_people: Optional[bool] = None,
+    caption_location: Optional[bool] = None, caption_description: Optional[bool] = None,
+    caption_people: Optional[bool] = None,
     caption_text: Optional[str] = None, caption_auto: Optional[bool] = None,
 ) -> Dict[str, Any]:
     overrides: Dict[str, Any] = {}
@@ -243,6 +244,7 @@ def _query_overrides(
             overrides[key] = value
     for key, flag in (
         ("caption", caption), ("caption_date", caption_date),
+        ("caption_location", caption_location),
         ("caption_description", caption_description), ("caption_people", caption_people),
     ):
         if flag is not None:
@@ -295,6 +297,7 @@ async def preview_asset(
     crop: Optional[str] = Query(default=None),
     caption: Optional[bool] = Query(default=None),
     caption_date: Optional[bool] = Query(default=None),
+    caption_location: Optional[bool] = Query(default=None),
     caption_description: Optional[bool] = Query(default=None),
     caption_people: Optional[bool] = Query(default=None),
     caption_text: Optional[str] = Query(default=None, max_length=1000),
@@ -306,7 +309,8 @@ async def preview_asset(
     """A proof of exactly what the prepared file will look like, caption included."""
     overrides = _query_overrides(
         rotate, fit, width_in, height_in, background, crop,
-        caption, caption_date, caption_description, caption_people, caption_text, caption_auto,
+        caption, caption_date, caption_location, caption_description, caption_people,
+        caption_text, caption_auto,
     )
     adj = _adjustments_from_query(ctx, username, asset_id, overrides)
     data = await _source_bytes(ctx, username, asset_id)
@@ -334,6 +338,7 @@ async def asset_caption(
     rotate: Optional[str] = Query(default=None),
     crop: Optional[str] = Query(default=None),
     caption_date: Optional[bool] = Query(default=None),
+    caption_location: Optional[bool] = Query(default=None),
     caption_description: Optional[bool] = Query(default=None),
     caption_people: Optional[bool] = Query(default=None),
     caption_text: Optional[str] = Query(default=None, max_length=1000),
@@ -348,7 +353,8 @@ async def asset_caption(
     """
     overrides = _query_overrides(
         rotate, None, None, None, None, crop,
-        None, caption_date, caption_description, caption_people, caption_text, caption_auto,
+        None, caption_date, caption_location, caption_description, caption_people,
+        caption_text, caption_auto,
     )
     adj = _adjustments_from_query(ctx, username, asset_id, overrides)
     source = await _caption_source(ctx, username, asset_id, fresh=True)

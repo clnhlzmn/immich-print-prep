@@ -475,6 +475,7 @@ def captioned(immich):
         description="Fourth of July at the lake",
         taken_at="2026-07-04T19:30:05.000Z",
         time_zone="America/Chicago",
+        place=("Austin", "Texas", "United States"),
         faces=[{"name": "Bob", "cx": 0.70}, {"name": "Alice", "cx": 0.20}, {"name": None, "cx": 0.45}],
     )
 
@@ -492,8 +493,8 @@ def test_a_caption_is_built_from_immich_and_printed_in_the_border(signed_in, cap
     job, archive = _prepare_one(signed_in, captioned, caption=True)
     manifest = archive.read("print-set-manifest.txt").decode()
     assert (
-        "caption: 2026-07-04 14:30:05 CDT / Fourth of July at the lake"
-        " / In this photo: Alice, Bob"
+        "caption: 2026-07-04 14:30:05 CDT / Austin, Texas, United States"
+        " / Fourth of July at the lake / In this photo: Alice, Bob"
     ) in manifest
     assert job["detail"]["caption_notes"] == []
 
@@ -501,12 +502,20 @@ def test_a_caption_is_built_from_immich_and_printed_in_the_border(signed_in, cap
     image = Image.open(io.BytesIO(archive.read(photo))).convert("RGB")
     assert image.size == (2400, 3000)
     assert min(max(px) for px in image.crop((2220, 60, 2395, 2940)).getdata()) < 100   # text, right edge
-    assert min(min(px) for px in image.crop((5, 60, 150, 2940)).getdata()) > 240       # nothing on the left
+    assert min(min(px) for px in image.crop((5, 60, 120, 2940)).getdata()) > 240       # nothing on the left
 
 
 def test_the_users_own_caption_replaces_immichs(signed_in, captioned):
     _, archive = _prepare_one(signed_in, captioned, caption=True, caption_text="Lake day")
     assert "caption: Lake day\n" in archive.read("print-set-manifest.txt").decode() + "\n"
+
+
+def test_a_caption_part_switched_off_is_left_out(signed_in, captioned):
+    _, archive = _prepare_one(
+        signed_in, captioned, caption=True, caption_location=False, caption_people=False,
+    )
+    manifest = archive.read("print-set-manifest.txt").decode()
+    assert "caption: 2026-07-04 14:30:05 CDT / Fourth of July at the lake\n" in manifest + "\n"
 
 
 def test_no_caption_unless_switched_on(signed_in, captioned):
@@ -517,7 +526,10 @@ def test_no_caption_unless_switched_on(signed_in, captioned):
 def test_without_face_access_people_are_named_without_an_order(signed_in, captioned, immich):
     immich.restricted_denies.add("face.read")
     signed_in.put("/api/settings", json={"api_key": RESTRICTED_KEY})
-    job, archive = _prepare_one(signed_in, captioned, caption=True, caption_date=False, caption_description=False)
+    job, archive = _prepare_one(
+        signed_in, captioned, caption=True,
+        caption_date=False, caption_location=False, caption_description=False,
+    )
     assert "caption: In this photo: Bob, Alice" in archive.read("print-set-manifest.txt").decode()
     assert any("face.read" in note for note in job["detail"]["caption_notes"])
 
@@ -528,12 +540,14 @@ def test_the_editor_gets_immichs_caption_with_crop_and_rotation_applied(signed_i
     assert info["auto"].endswith("In this photo: Alice, Bob")        # unnamed person left out
     assert info["override"] is None
     assert info["parts"]["capture"] == "2026-07-04 14:30:05 CDT"
+    assert info["parts"]["location"] == "Austin, Texas, United States"
 
     # The landscape photo is turned counter-clockwise, so its left side is the
     # bottom of the image the crop box is drawn on: cropping to that keeps Alice
     # and loses Bob.
     cropped = signed_in.get("/api/selection/%s/caption" % captioned, params={
-        "crop": "0,0.5,1,0.5", "caption_date": False, "caption_description": False,
+        "crop": "0,0.5,1,0.5", "caption_date": False, "caption_location": False,
+        "caption_description": False,
     }).json()
     assert cropped["auto"] == "In this photo: Alice"
 

@@ -1,4 +1,5 @@
-"""Caption text: capture time in the photo's own zone, and people left to right."""
+"""Caption text: capture time in the photo's own zone, where it was taken, and
+people left to right."""
 
 from __future__ import annotations
 
@@ -9,6 +10,7 @@ from immich_print_prep.captions import (
     Face,
     compose,
     format_capture_time,
+    format_location,
     parse_faces,
     people_line,
     quarter_turns,
@@ -50,6 +52,26 @@ def test_an_unrecognised_zone_falls_back_to_the_cameras_clock():
 
 def test_no_dates_at_all_means_no_date_line():
     assert format_capture_time(None, "America/Chicago", None) is None
+
+
+# ---------- place ----------
+
+def test_the_place_reads_from_the_city_outwards():
+    assert format_location("Austin", "Texas", "United States") == "Austin, Texas, United States"
+
+
+def test_missing_parts_of_the_place_are_skipped():
+    assert format_location(None, "Texas", "United States") == "Texas, United States"
+    assert format_location("Austin", None, None) == "Austin"
+    assert format_location("  ", "", None) is None
+
+
+def test_a_place_repeated_by_the_geocoder_is_printed_once():
+    assert format_location("Singapore", "singapore", "Singapore") == "Singapore"
+
+
+def test_a_photo_without_a_gps_fix_has_no_place_line():
+    assert format_location(None, None, None) is None
 
 
 # ---------- people ----------
@@ -126,14 +148,15 @@ def test_faces_are_read_from_immichs_response():
 # ---------- compose ----------
 
 def adjustments(**overrides):
-    base = dict(caption_text=None, caption_date=True, caption_description=True,
-                caption_people=True, crop=None, rotate="auto")
+    base = dict(caption_text=None, caption_date=True, caption_location=True,
+                caption_description=True, caption_people=True, crop=None, rotate="auto")
     base.update(overrides)
     return SimpleNamespace(**base)
 
 
 SOURCE = CaptionSource(
     capture="2026-07-04 14:30:05 CDT",
+    location="Austin, Texas, United States",
     description="Fourth of July at the lake",
     faces=[face("Alice", 0.2), face("Bob", 0.7)],
     upright_landscape=True,
@@ -142,14 +165,20 @@ SOURCE = CaptionSource(
 
 def test_compose_puts_each_part_on_its_own_line():
     assert compose(SOURCE, adjustments()) == (
-        "2026-07-04 14:30:05 CDT\nFourth of July at the lake\nIn this photo: Alice, Bob"
+        "2026-07-04 14:30:05 CDT\nAustin, Texas, United States"
+        "\nFourth of July at the lake\nIn this photo: Alice, Bob"
     )
 
 
 def test_compose_respects_the_toggles():
-    assert compose(SOURCE, adjustments(caption_description=False, caption_people=False)) == (
-        "2026-07-04 14:30:05 CDT"
-    )
+    assert compose(SOURCE, adjustments(
+        caption_location=False, caption_description=False, caption_people=False,
+    )) == "2026-07-04 14:30:05 CDT"
+
+
+def test_a_photo_with_no_location_simply_has_no_location_line():
+    source = CaptionSource(capture="2026-07-04 14:30:05 CDT", description="At the lake")
+    assert compose(source, adjustments()) == "2026-07-04 14:30:05 CDT\nAt the lake"
 
 
 def test_the_users_own_text_wins_even_when_blank():

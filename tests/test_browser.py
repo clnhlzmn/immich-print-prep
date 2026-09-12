@@ -238,6 +238,7 @@ def test_a_caption_can_be_rewritten_for_one_print(tmp_path, page):
         description="Fourth of July at the lake",
         taken_at="2026-07-04T19:30:05.000Z",
         time_zone="America/Chicago",
+        place=("Austin", "Texas", "United States"),
         faces=[{"name": "Alice", "cx": 0.25}, {"name": "Bob", "cx": 0.75}],
     )
     fake.add_album("Lake", [photo])
@@ -273,7 +274,15 @@ def test_a_caption_can_be_rewritten_for_one_print(tmp_path, page):
             )
             box = editor.locator("textarea")
             assert box.input_value() == (
-                "2026-07-04 14:30:05 CDT\nFourth of July at the lake\nIn this photo: Alice, Bob"
+                "2026-07-04 14:30:05 CDT\nAustin, Texas, United States"
+                "\nFourth of July at the lake\nIn this photo: Alice, Bob"
+            )
+
+            # Unticking a part drops its line, leaving the rest in order.
+            editor.get_by_label("Location").uncheck()
+            page.wait_for_function(
+                "() => (document.querySelector('#editor-dialog textarea') || {}).value"
+                "?.startsWith('2026-07-04 14:30:05 CDT\\nFourth')"
             )
             assert not editor.get_by_role("button", name="Use Immich's text").is_visible()
 

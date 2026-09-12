@@ -256,6 +256,10 @@ class ImmichClient:
             "dateTimeOriginal": exif.get("dateTimeOriginal") or raw.get("fileCreatedAt"),
             "timeZone": exif.get("timeZone"),
             "localDateTime": raw.get("localDateTime"),
+            # Immich reverse-geocodes the GPS fix into these; any may be missing.
+            "city": exif.get("city"),
+            "state": exif.get("state"),
+            "country": exif.get("country"),
             "people": [
                 {"name": person.get("name"), "isHidden": bool(person.get("isHidden"))}
                 for person in raw.get("people") or []

@@ -162,12 +162,15 @@ source, and the settings used.
 ## Captions
 
 Switch on **Caption in the border** (in the print set toolbar, your defaults,
-or one photo's Adjust dialog) to print up to three lines beside each photo:
+or one photo's Adjust dialog) to print up to four lines beside each photo:
 
 - **Date & time** — when the photo was taken, as `YYYY-MM-DD hh:mm:ss TZ` in the
   time zone Immich recorded for it (`CDT`, or `UTC+05:30` for zones without an
   abbreviation). If Immich has no zone for a photo, the camera's clock is
   printed with no zone rather than a guessed one.
+- **Location** — where the photo was taken, as `City, State, Country` from
+  whichever of those Immich reverse-geocoded from the photo's GPS fix. A photo
+  Immich has no place for simply has no location line.
 - **Description** — the photo's description in Immich, fetched when you click
   Prepare, so edits made in Immich since are included.
 - **People** — `In this photo: Alice, Bob`. Only people named in Immich are
