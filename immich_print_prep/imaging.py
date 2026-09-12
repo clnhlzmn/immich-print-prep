@@ -426,36 +426,51 @@ def _truncate(
     return kept, True
 
 
+def _elide(text: str, font, width: float) -> str:
+    """`text` cut to `width` with an ellipsis. Empty if not even that fits."""
+    if font.getlength(text) <= width:
+        return text
+    while text and font.getlength(text + ELLIPSIS) > width:
+        text = text[:-1].rstrip()
+    return text + ELLIPSIS if text else ""
+
+
 def _fit_gear(
-    groups: Sequence[str], left: Sequence[str], font, line_width: int
+    atoms: Sequence[str], left: Sequence[str], font, line_width: int, max_rows: int
 ) -> Tuple[str, ...]:
-    """The fullest arrangement of the gear groups that fits beside the prose.
+    """Pack the gear into right-aligned rows, filling each row as far as it goes.
 
-    Each gear line is right-aligned on the row of the prose line with the same
-    index, so it uses the run of empty paper the short prose lines leave rather
-    than a row of its own. Tried in order, first that fits wins: everything on
-    one row, a row per group, then the exposure alone - completeness before
-    compactness, so a long lens name costs a row rather than being dropped.
+    Each row is right-aligned opposite the prose line of the same index, using
+    the run of empty paper the short prose lines leave. The atoms are the
+    smallest pieces worth keeping whole - body, lens, then each exposure setting
+    - so a row that cannot take the lens takes the body and passes the lens to
+    the next row, rather than the caption losing it.
 
-    A row past the end of the prose has the full width to itself; that does add
-    height, and only happens when the prose has fewer lines than the gear.
+    A row too full of prose to take any atom is left empty and the packing
+    carries on below it. Rows past the end of the prose have the full width, and
+    do add height; that only happens when the gear needs more rows than the
+    prose has lines.
     """
-    groups = [group for group in groups if group]
-    if not groups:
+    pending = [atom for atom in atoms if atom]
+    if not pending:
         return ()
     separator = font.getlength("  ")
-
-    def fits(candidate: Sequence[str]) -> bool:
-        for index, line in enumerate(candidate):
-            taken = font.getlength(left[index]) + separator if index < len(left) else 0
-            if font.getlength(line) > line_width - taken:
-                return False
-        return True
-
-    for candidate in ((" · ".join(groups),), tuple(groups), (groups[-1],)):
-        if fits(candidate):
-            return tuple(candidate)
-    return ()
+    rows: List[str] = []
+    while pending and len(rows) < max_rows:
+        index = len(rows)
+        room = line_width - (
+            font.getlength(left[index]) + separator if index < len(left) else 0
+        )
+        taken: List[str] = []
+        while pending and font.getlength(" · ".join(taken + pending[:1])) <= room:
+            taken.append(pending.pop(0))
+        if not taken and index >= len(left):
+            # A whole empty row cannot hold it, so nothing below will either.
+            taken.append(_elide(pending.pop(0), font, room))
+        rows.append(" · ".join(taken))
+    while rows and not rows[-1]:
+        rows.pop()
+    return tuple(rows)
 
 
 @dataclass(frozen=True)
@@ -536,12 +551,16 @@ def _layout_along(
         min(px(CAPTION_MAX_STRIP_IN), int(across * CAPTION_MAX_STRIP_FRACTION)),
     )
 
+    # Worst case one atom per row, so this many rows never drops one - and the
+    # packer stops as soon as they are placed.
+    gear_rows = len([atom for atom in gear if atom])
+
     def measure(point_size: float):
         font_px = max(1, int(round(point_size / 72.0 * dpi)))
         line_height = max(1, int(round(font_px * CAPTION_LINE_SPACING)))
         font = _caption_font(font_px)
         lines = _wrap(text, font, line_width)
-        right = _fit_gear(gear, lines, font, line_width)
+        right = _fit_gear(gear, lines, font, line_width, max(len(lines), gear_rows))
         rows = max(len(lines), len(right))
         return font_px, line_height, lines, right, edge_px + gap_px + rows * line_height
 
@@ -557,9 +576,9 @@ def _layout_along(
         max_rows = max(1, (limit - edge_px - gap_px) // line_height)
         font = _caption_font(font_px)
         lines, truncated = _truncate(lines, max_rows, font, line_width)
-        # The prose just moved, so the gear has to be re-fitted against it, and
-        # cut to the rows that are left.
-        right_lines = _fit_gear(gear, lines, font, line_width)[:max_rows]
+        # The prose just moved, so the gear has to be re-fitted against it,
+        # within the rows that are left.
+        right_lines = _fit_gear(gear, lines, font, line_width, max_rows)
         need = edge_px + gap_px + max(len(lines), len(right_lines)) * line_height
 
     if need <= space:

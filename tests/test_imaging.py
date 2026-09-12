@@ -194,7 +194,9 @@ def test_an_overlong_caption_is_cut_off_rather_than_shrinking_the_photo_further(
 
 # ---------- gear, right-aligned ----------
 
-GEAR = ("Canon EOS R6 · RF24-70mm F2.8 L IS USM", "50mm · f/2.8 · 1/250s")
+GEAR = ("Canon EOS R6", "RF24-70mm F2.8 L IS USM", "50mm", "f/2.8", "1/250s")
+LONG_GEAR = ("Canon EOS R5 Mark II", "RF100-500mm F4.5-7.1 L IS USM + RF1.4x Extender",
+             "700mm", "f/10", "1/1600s")
 
 
 def test_gear_costs_the_photo_nothing_on_a_print_with_room():
@@ -206,13 +208,31 @@ def test_gear_costs_the_photo_nothing_on_a_print_with_room():
     assert len(with_gear.right_lines) == 1        # both groups on one row
 
 
-def test_a_cramped_print_splits_the_gear_before_it_takes_a_new_row():
-    # A 4x6 leaves far less run, so the groups take a row each - still fewer
-    # rows than the prose, so the photo is no worse off.
+def test_a_cramped_print_spreads_the_gear_over_rows_rather_than_dropping_it():
+    # A 4x6 leaves a third of the run, so the pieces spread down the rows the
+    # prose already uses. Nothing is lost and the photo is no worse off.
     layout = layout_caption(PORTRAIT_2X3, PAPER_4X6, MEDIUM, 300, gear=GEAR)
-    assert layout.right_lines == GEAR
+    assert len(layout.right_lines) > 1
     assert len(layout.right_lines) <= len(layout.lines)
     assert layout.strip == layout_caption(PORTRAIT_2X3, PAPER_4X6, MEDIUM, 300).strip
+    for atom in GEAR:
+        assert atom in " ".join(layout.right_lines)
+
+
+def test_a_long_lens_name_takes_a_row_rather_than_losing_the_camera():
+    layout = layout_caption(PORTRAIT_2X3, PAPER_4X6, MEDIUM, 300, gear=LONG_GEAR)
+    # The body fills the first row; the lens will not join it, so it heads the
+    # next one and the row fills up behind it.
+    assert layout.right_lines[0] == LONG_GEAR[0]
+    assert layout.right_lines[1].startswith(LONG_GEAR[1])
+    for atom in LONG_GEAR:
+        assert atom in " ".join(layout.right_lines)
+    assert layout.strip == layout_caption(PORTRAIT_2X3, PAPER_4X6, MEDIUM, 300).strip
+
+
+def test_gear_packs_onto_one_row_whenever_the_run_allows():
+    layout = layout_caption(PORTRAIT_2X3, PAPER_8X10, MEDIUM, 300, gear=LONG_GEAR)
+    assert layout.right_lines == (" · ".join(LONG_GEAR),)
 
 
 def test_gear_alone_captions_a_photo_with_no_prose():

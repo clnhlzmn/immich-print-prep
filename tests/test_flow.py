@@ -575,7 +575,7 @@ def test_the_editor_gets_immichs_caption_with_crop_and_rotation_applied(signed_i
     assert info["parts"]["capture"] == "2026-07-04 14:30:05 CDT"
     assert info["parts"]["location"] == "Austin, Texas, United States"
     assert info["gear"] == [
-        "Canon EOS R6 · RF24-70mm F2.8 L IS USM", "50mm · f/2.8 · 1/250s",
+        "Canon EOS R6", "RF24-70mm F2.8 L IS USM", "50mm", "f/2.8", "1/250s",
     ]
 
     # The landscape photo is turned counter-clockwise, so its left side is the

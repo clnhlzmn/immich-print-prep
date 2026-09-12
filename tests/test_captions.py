@@ -10,9 +10,10 @@ from immich_print_prep.captions import (
     Face,
     compose,
     compose_gear,
+    exposure_atoms,
     format_camera,
     format_capture_time,
-    format_exposure,
+    format_gear,
     format_location,
     parse_faces,
     people_line,
@@ -79,44 +80,45 @@ def test_a_photo_without_a_gps_fix_has_no_place_line():
 
 # ---------- camera and exposure ----------
 
-def test_the_body_and_lens_read_as_one_group():
-    assert format_camera("Canon", "Canon EOS R6", "RF24-70mm F2.8 L IS USM") == (
-        "Canon EOS R6 · RF24-70mm F2.8 L IS USM"
-    )
-
-
 def test_the_brand_is_added_only_when_the_model_lacks_it():
     # EXIF makes are inconsistent; neither of these should read the brand twice.
-    assert format_camera("Canon", "Canon EOS R6", None) == "Canon EOS R6"
-    assert format_camera("NIKON CORPORATION", "NIKON Z 6", None) == "NIKON Z 6"
+    assert format_camera("Canon", "Canon EOS R6") == "Canon EOS R6"
+    assert format_camera("NIKON CORPORATION", "NIKON Z 6") == "NIKON Z 6"
     # ...and neither of these makes sense without it.
-    assert format_camera("SONY", "ILCE-7M4", None) == "SONY ILCE-7M4"
-    assert format_camera("Apple", "iPhone 15 Pro", None) == "Apple iPhone 15 Pro"
-
-
-def test_a_body_with_no_lens_recorded_is_still_named():
-    assert format_camera(None, "Canon EOS R6", None) == "Canon EOS R6"
-    assert format_camera(None, None, None) is None
+    assert format_camera("SONY", "ILCE-7M4") == "SONY ILCE-7M4"
+    assert format_camera("Apple", "iPhone 15 Pro") == "Apple iPhone 15 Pro"
+    assert format_camera(None, None) is None
 
 
 def test_the_exposure_reads_focal_length_aperture_then_shutter():
-    assert format_exposure(50, 2.8, "1/250") == "50mm · f/2.8 · 1/250s"
+    assert exposure_atoms(50, 2.8, "1/250") == ("50mm", "f/2.8", "1/250s")
 
 
 def test_settings_the_camera_did_not_record_are_skipped():
-    assert format_exposure(None, 2.8, None) == "f/2.8"
-    assert format_exposure(0, 0, "") is None
+    assert exposure_atoms(None, 2.8, None) == ("f/2.8",)
+    assert exposure_atoms(0, 0, "") == ()
 
 
 def test_awkward_numbers_are_tidied_rather_than_printed_raw():
-    assert format_exposure(24.0, 1.7999, "1/250") == "24mm · f/1.8 · 1/250s"
+    assert exposure_atoms(24.0, 1.7999, "1/250") == ("24mm", "f/1.8", "1/250s")
 
 
 def test_a_shutter_speed_given_as_a_number_becomes_a_fraction():
     # Immich reports either form; a long exposure stays in seconds.
-    assert format_exposure(None, None, "0.004") == "1/250s"
-    assert format_exposure(None, None, "1.3") == "1.3s"
-    assert format_exposure(None, None, "30") == "30s"
+    assert exposure_atoms(None, None, "0.004") == ("1/250s",)
+    assert exposure_atoms(None, None, "1.3") == ("1.3s",)
+    assert exposure_atoms(None, None, "30") == ("30s",)
+
+
+def test_gear_stays_in_pieces_so_the_layout_can_spread_it():
+    # Not pre-joined: a 4x6 may need these on three rows, an 8x10 on one.
+    assert format_gear("Canon", "Canon EOS R6", "RF24-70mm F2.8 L IS USM", 50, 2.8, "1/250") == (
+        "Canon EOS R6", "RF24-70mm F2.8 L IS USM", "50mm", "f/2.8", "1/250s",
+    )
+
+
+def test_a_photo_with_no_camera_exif_yields_no_pieces():
+    assert format_gear(None, None, None, None, None, None) == ()
 
 
 # ---------- people ----------
@@ -204,8 +206,7 @@ SOURCE = CaptionSource(
     capture="2026-07-04 14:30:05 CDT",
     location="Austin, Texas, United States",
     description="Fourth of July at the lake",
-    camera="Canon EOS R6 · RF24-70mm F2.8 L IS USM",
-    exposure="50mm · f/2.8 · 1/250s",
+    gear=("Canon EOS R6", "RF24-70mm F2.8 L IS USM", "50mm", "f/2.8", "1/250s"),
     faces=[face("Alice", 0.2), face("Bob", 0.7)],
     upright_landscape=True,
 )
@@ -232,7 +233,7 @@ def test_a_photo_with_no_location_simply_has_no_location_line():
 def test_gear_is_its_own_column_not_a_line_of_the_prose():
     assert "Canon" not in compose(SOURCE, adjustments())
     assert compose_gear(SOURCE, adjustments()) == (
-        "Canon EOS R6 · RF24-70mm F2.8 L IS USM", "50mm · f/2.8 · 1/250s",
+        "Canon EOS R6", "RF24-70mm F2.8 L IS USM", "50mm", "f/2.8", "1/250s",
     )
 
 

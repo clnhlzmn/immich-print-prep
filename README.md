@@ -185,10 +185,15 @@ Plus one more, printed differently:
   f/2.8 · 1/250s`, from the EXIF Immich read. This one is **right-aligned**,
   sharing the rows the four lines above already occupy, because those lines use
   only the first few inches of a band that runs the whole edge of the print. On
-  an 8×10 it costs the photo nothing at all. Where the run is shorter — a 4×6,
-  or a long description — the body and the exposure split onto two rows, still
-  inside the rows the prose uses. Only a photo with almost no caption can be
-  made taller by it.
+  an 8×10 it costs the photo nothing at all.
+
+  Where the run is shorter — a 4×6, a long description, a long lens name — it
+  spreads down the rows instead of being cut: the body, the lens and each
+  exposure setting are kept whole and packed onto as many rows as it takes, so
+  a row that cannot fit the lens passes it to the next one. Since the prose is
+  usually several lines, there are normally rows going spare and the photo
+  still pays nothing. Only a photo whose caption has fewer lines than the gear
+  needs can be made taller by it.
 
 In any photo's Adjust dialog you can rewrite its caption for that print only;
 **Use Immich's text** puts the generated one back. Rewriting the text replaces

@@ -43,9 +43,10 @@ class CaptionSource:
     capture: Optional[str] = None
     location: Optional[str] = None
     description: Optional[str] = None
-    # The two gear groups, printed right-aligned rather than as prose lines.
-    camera: Optional[str] = None
-    exposure: Optional[str] = None
+    # Gear, printed right-aligned rather than as prose lines. Kept as the
+    # smallest pieces worth keeping together, so the layout can put them on as
+    # many or as few rows as the paper allows.
+    gear: Tuple[str, ...] = ()
     faces: List[Face] = field(default_factory=list)
     # From the face detector's image size; decides what "auto" rotation did.
     upright_landscape: Optional[bool] = None
@@ -153,10 +154,8 @@ def _number(value: Any) -> Optional[float]:
         return None
 
 
-def format_camera(
-    make: Optional[str], model: Optional[str], lens: Optional[str]
-) -> Optional[str]:
-    """`Canon EOS R6 · RF24-70mm F2.8 L IS USM`, from whichever parts exist.
+def format_camera(make: Optional[str], model: Optional[str]) -> Optional[str]:
+    """`Canon EOS R6`, the body on its own.
 
     Only the brand word of the make is used, and only when the model does not
     already carry it. EXIF makes are inconsistent about this: Canon writes
@@ -164,18 +163,18 @@ def format_camera(
     of which would read twice, while Sony writes "SONY" / "ILCE-7M4" and Apple
     "Apple" / "iPhone 15 Pro", which need the brand to make sense.
     """
-    make, model, lens = (str(part or "").strip() for part in (make, model, lens))
+    make, model = (str(part or "").strip() for part in (make, model))
     brand = make.split()[0] if make else ""
     body = model
     if brand and not model.casefold().startswith(brand.casefold()):
         body = ("%s %s" % (brand, model)).strip()
-    return " · ".join(part for part in (body, lens) if part) or None
+    return body or None
 
 
-def format_exposure(
+def exposure_atoms(
     focal_length: Any, f_number: Any, exposure_time: Any
-) -> Optional[str]:
-    """`50mm · f/2.8 · 1/250s`, from whichever settings the camera recorded."""
+) -> Tuple[str, ...]:
+    """`50mm`, `f/2.8`, `1/250s` - whichever settings the camera recorded."""
     parts: List[str] = []
     focal = _number(focal_length)
     if focal:
@@ -186,7 +185,27 @@ def format_exposure(
     shutter = _format_shutter(exposure_time)
     if shutter:
         parts.append(shutter)
-    return " · ".join(parts) or None
+    return tuple(parts)
+
+
+def format_gear(
+    make: Any, model: Any, lens: Any, focal_length: Any, f_number: Any, exposure_time: Any
+) -> Tuple[str, ...]:
+    """Everything the photo was shot with, smallest pieces first.
+
+    Deliberately not pre-joined: the layout packs these onto however many rows
+    the paper leaves, so a long lens name costs a row rather than the whole
+    camera being dropped to make one line fit.
+    """
+    atoms: List[str] = []
+    body = format_camera(make, model)
+    if body:
+        atoms.append(body)
+    glass = str(lens or "").strip()
+    if glass:
+        atoms.append(glass)
+    atoms.extend(exposure_atoms(focal_length, f_number, exposure_time))
+    return tuple(atoms)
 
 
 def _format_shutter(value: Any) -> Optional[str]:
@@ -307,8 +326,7 @@ def caption_parts(source: CaptionSource, adj: Any) -> Dict[str, Optional[str]]:
         "location": source.location if adj.caption_location else None,
         "description": description,
         "people": people,
-        "camera": source.camera if adj.caption_gear else None,
-        "exposure": source.exposure if adj.caption_gear else None,
+        "gear": " · ".join(source.gear) if adj.caption_gear and source.gear else None,
     }
 
 
@@ -328,14 +346,12 @@ def compose(source: CaptionSource, adj: Any) -> str:
 
 
 def compose_gear(source: CaptionSource, adj: Any) -> Tuple[str, ...]:
-    """What the photo was shot with, as groups the layout may split or drop.
+    """What the photo was shot with, as pieces the layout packs onto rows.
 
     Unlike the prose this survives a hand-written caption: the user rewrites
     what the photo is, not what took it.
     """
-    if not adj.caption_gear:
-        return ()
-    return tuple(group for group in (source.camera, source.exposure) if group)
+    return source.gear if adj.caption_gear else ()
 
 
 async def resolve_source(client: ImmichClient, asset_id: str) -> CaptionSource:
@@ -358,11 +374,9 @@ async def resolve_source(client: ImmichClient, asset_id: str) -> CaptionSource:
     source.location = format_location(
         details.get("city"), details.get("state"), details.get("country")
     )
-    source.camera = format_camera(
-        details.get("make"), details.get("model"), details.get("lensModel")
-    )
-    source.exposure = format_exposure(
-        details.get("focalLength"), details.get("fNumber"), details.get("exposureTime")
+    source.gear = format_gear(
+        details.get("make"), details.get("model"), details.get("lensModel"),
+        details.get("focalLength"), details.get("fNumber"), details.get("exposureTime"),
     )
     source.description = (details.get("description") or "").strip() or None
     source.names = [
