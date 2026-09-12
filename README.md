@@ -228,6 +228,10 @@ git tag v0.1.0
 git push origin v0.1.0
 ```
 
+The tag is the only place a version is written. The `version` in
+`pyproject.toml` is a fixed `0.0.0` placeholder that nothing reads — there is no
+file to bump before tagging, and nothing to keep in step with the tag.
+
 That publishes `ghcr.io/clnhlzmn/immich-print-prep:0.1.0`, `:0.1`, and `:latest`.
 
 ## Notes and limits

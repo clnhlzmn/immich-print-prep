@@ -4,7 +4,10 @@ build-backend = "hatchling.build"
 
 [project]
 name = "immich-print-prep"
-version = "0.1.11"
+# Not the real version: the git tag is, and the release workflow takes the
+# image tag from it. Nothing reads this, so it is left alone rather than
+# bumped into disagreement with the tag.
+version = "0.0.0"
 description = "Web UI for selecting photos from an Immich instance and preparing them for print ordering."
 readme = "README.md"
 license = { text = "MIT" }
