@@ -438,38 +438,41 @@ def _elide(text: str, font, width: float) -> str:
 def _fit_gear(
     atoms: Sequence[str], left: Sequence[str], font, line_width: int, max_rows: int
 ) -> Tuple[str, ...]:
-    """Pack the gear into right-aligned rows, filling each row as far as it goes.
+    """Pack the gear into right-aligned rows beside the prose, as two columns.
 
-    Each row is right-aligned opposite the prose line of the same index, using
-    the run of empty paper the short prose lines leave. The atoms are the
-    smallest pieces worth keeping whole - body, lens, then each exposure setting
-    - so a row that cannot take the lens takes the body and passes the lens to
-    the next row, rather than the caption losing it.
+    The two sides are columns, not independent rows: the gear gets whatever the
+    *widest* prose line leaves, and every gear row is held to that same width.
+    Measuring each row against only its own prose line would let a wide gear row
+    reach back under a short one and read as a continuation of the prose above
+    it - "hi some long lens name" sitting under "2026-09-12    SONY".
 
-    A row too full of prose to take any atom is left empty and the packing
-    carries on below it. Rows past the end of the prose have the full width, and
-    do add height; that only happens when the gear needs more rows than the
-    prose has lines.
+    Within that column the atoms are the smallest pieces worth keeping whole -
+    body, lens, then each exposure setting - packed onto as many rows as they
+    need, so a row that cannot take the lens passes it to the next one rather
+    than the caption losing it. Rows past the end of the prose do add height;
+    that only happens when the gear needs more rows than the prose has lines.
     """
     pending = [atom for atom in atoms if atom]
     if not pending:
         return ()
-    separator = font.getlength("  ")
+    widest = max((font.getlength(line) for line in left), default=0.0)
+    room = line_width - (widest + font.getlength("  ") if widest else 0)
+    if room <= 0:
+        return ()
+
     rows: List[str] = []
     while pending and len(rows) < max_rows:
-        index = len(rows)
-        room = line_width - (
-            font.getlength(left[index]) + separator if index < len(left) else 0
-        )
         taken: List[str] = []
         while pending and font.getlength(" · ".join(taken + pending[:1])) <= room:
             taken.append(pending.pop(0))
-        if not taken and index >= len(left):
-            # A whole empty row cannot hold it, so nothing below will either.
-            taken.append(_elide(pending.pop(0), font, room))
+        if not taken:
+            # The column is the same width on every row, so a piece that does
+            # not fit here will not fit below either.
+            short = _elide(pending.pop(0), font, room)
+            if not short:
+                break
+            taken.append(short)
         rows.append(" · ".join(taken))
-    while rows and not rows[-1]:
-        rows.pop()
     return tuple(rows)
 
 

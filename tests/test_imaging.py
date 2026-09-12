@@ -134,7 +134,11 @@ def test_undecodable_bytes_raise_a_named_error():
 
 # ---------- captions in the border ----------
 
-from immich_print_prep.imaging import CAPTION_FONT_PATH, layout_caption  # noqa: E402
+from immich_print_prep.imaging import (  # noqa: E402
+    CAPTION_FONT_PATH,
+    _caption_font,
+    layout_caption,
+)
 
 SHORT = "2026-07-04 14:30:05 CDT"
 MEDIUM = SHORT + "\nFourth of July at the lake\nIn this photo: Alice, Bob"
@@ -228,6 +232,38 @@ def test_a_long_lens_name_takes_a_row_rather_than_losing_the_camera():
     for atom in LONG_GEAR:
         assert atom in " ".join(layout.right_lines)
     assert layout.strip == layout_caption(PORTRAIT_2X3, PAPER_4X6, MEDIUM, 300).strip
+
+
+def _columns(layout, paper):
+    """Where the prose block ends and the gear block starts, in band pixels."""
+    font = _caption_font(layout.font_px)
+    run = paper[1] if layout.edge in ("right", "left") else paper[0]
+    line_width = run - 2 * layout.edge_px
+    return (
+        max((font.getlength(line) for line in layout.lines), default=0.0),
+        min((line_width - font.getlength(line) for line in layout.right_lines), default=line_width),
+    )
+
+
+def test_the_gear_column_never_reaches_back_under_the_prose():
+    """Held to the widest prose line, not each row's own.
+
+    Measured per row, a wide gear row slides in under a short prose line and
+    reads as a continuation of it: "hi some long lens name" below
+    "2026-09-12    SONY".
+    """
+    ragged = (
+        "Fourth of July at the lake and a long description that wraps around\nhi",
+        "2026-09-12\nIn this photo: Alice, Bob and Carol",
+        MEDIUM,
+        SHORT,
+        "",
+    )
+    for prose in ragged:
+        for paper in (PAPER_4X6, PAPER_8X10):
+            layout = layout_caption(PORTRAIT_2X3, paper, prose, 300, gear=LONG_GEAR)
+            prose_ends, gear_starts = _columns(layout, paper)
+            assert gear_starts >= prose_ends, (prose, paper, layout.right_lines)
 
 
 def test_gear_packs_onto_one_row_whenever_the_run_allows():

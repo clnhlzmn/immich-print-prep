@@ -195,6 +195,12 @@ Plus one more, printed differently:
   still pays nothing. Only a photo whose caption has fewer lines than the gear
   needs can be made taller by it.
 
+  The two sides are proper columns: the gear is held to what the *widest* line
+  of the caption leaves, not to what its own row happens to leave, so it can
+  never slide back under a short line above and read as part of it. On a print
+  where that leaves very little room, a single piece too wide for the column
+  is cut with an "…" rather than the column being widened into the text.
+
 In any photo's Adjust dialog you can rewrite its caption for that print only;
 **Use Immich's text** puts the generated one back. Rewriting the text replaces
 the four lines, not the camera column — you are saying what the photo is, not
