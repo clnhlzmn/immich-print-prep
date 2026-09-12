@@ -57,7 +57,11 @@ header.top {
     z-index: 30;
     display: flex;
     align-items: center;
-    gap: 12px;
+    /* Wraps onto a second row rather than pushing Settings and Sign out off a
+       phone screen, which made every page scroll sideways. */
+    flex-wrap: wrap;
+    row-gap: 8px;
+    column-gap: 12px;
     padding: 10px 16px;
     background: var(--panel);
     border-bottom: 1px solid var(--border);
@@ -68,6 +72,9 @@ header.top h1 {
     font-weight: 650;
     margin: 0;
     white-space: nowrap;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
 }
 
 header.top .spacer { flex: 1; }
@@ -265,7 +272,12 @@ label.check { display: flex; align-items: center; gap: 8px; font-size: 14px; col
     padding-bottom: 10px;
     border-bottom: 1px solid var(--border);
 }
-.record-options .record-head { display: flex; align-items: center; gap: 8px; }
+/* Collapsed on a phone, where the bar would otherwise fill the screen. */
+.record-options summary { cursor: pointer; list-style: none; display: flex; align-items: center; gap: 6px; }
+.record-options summary::-webkit-details-marker { display: none; }
+.record-options summary::before { content: "\25b8"; color: var(--muted); }
+.record-options details[open] summary::before { content: "\25be"; }
+.record-options .record-body { display: grid; gap: 6px; padding-top: 8px; }
 .record-row { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; }
 .record-row label.check { min-width: 175px; }
 .record-row input[type="text"] { width: min(28ch, 100%); }
@@ -382,7 +394,13 @@ dialog .foot { display: flex; gap: 10px; padding: 12px 16px; border-top: 1px sol
 .controls { display: grid; gap: 12px; align-content: start; }
 .controls .proof-pane { display: grid; place-items: center; background: var(--panel-2); border-radius: 6px; padding: 8px; }
 .controls .proof-pane img { max-height: 220px; max-width: 100%; background: #fff; box-shadow: var(--shadow); }
-.controls fieldset { border: 1px solid var(--border); border-radius: 8px; padding: 10px 12px; margin: 0; }
+/* A fieldset will not shrink below its content unless told to, which pushed the
+   settings panel wider than a phone screen. Long permission lists must be
+   allowed to break, too, or they set the width on their own. */
+.controls fieldset, fieldset.controls { border: 1px solid var(--border); border-radius: 8px; padding: 10px 12px; margin: 0; min-width: 0; }
+dialog code, dialog p, .controls p { overflow-wrap: anywhere; }
+dialog input[type="text"], dialog input[type="password"], dialog input[type="search"],
+dialog input[type="number"], dialog select, dialog textarea { max-width: 100%; }
 .controls legend { font-size: 12px; color: var(--muted); padding: 0 4px; }
 .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
 
@@ -397,16 +415,18 @@ progress { width: 100%; height: 10px; }
     display: grid;
     gap: 8px;
     z-index: 100;
+    /* Never in the way of a tap: these are notices, not controls. */
+    pointer-events: none;
 }
 
 .toast {
+    max-width: min(380px, calc(100vw - 32px));
     background: var(--panel);
     border: 1px solid var(--border);
     border-left: 3px solid var(--accent);
     border-radius: 8px;
     padding: 10px 14px;
     box-shadow: var(--shadow);
-    max-width: 380px;
 }
 
 .toast.error { border-left-color: var(--danger); }
@@ -430,3 +450,22 @@ progress { width: 100%; height: 10px; }
 .empty { padding: 40px; text-align: center; color: var(--muted); }
 .spinner { display: inline-block; width: 14px; height: 14px; border: 2px solid var(--border); border-top-color: var(--accent); border-radius: 50%; animation: spin 0.8s linear infinite; }
 @keyframes spin { to { transform: rotate(360deg); } }
+
+
+/* ---------- phones ---------- */
+
+@media (max-width: 640px) {
+    header.top { padding: 8px 10px; column-gap: 8px; }
+    header.top h1 { font-size: 15px; }
+    header.top #who { display: none; }        /* the account name is in Settings */
+    .tabs button { padding: 6px 10px; }
+    main { padding: 10px; }
+    .toolbar { padding: 10px; gap: 8px; }
+    .actionbar { padding: 8px 10px; gap: 8px; }
+    .record-row label.check { min-width: 0; }
+    dialog .body { padding: 12px; }
+    .controls fieldset { padding: 8px 10px; }
+    /* Below the header rather than over the Prepare button. */
+    #toasts { top: 96px; bottom: auto; left: 10px; right: 10px; }
+    .toast { max-width: none; }
+}

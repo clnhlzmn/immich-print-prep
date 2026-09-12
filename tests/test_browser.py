@@ -344,3 +344,73 @@ def test_a_print_can_be_opened_larger_from_the_print_set(tmp_path, page):
             viewer.wait_for(state="visible")
             page.keyboard.press("Escape")
             viewer.wait_for(state="hidden")
+
+
+@pytest.fixture
+def phone():
+    """A page the size of a phone screen."""
+    with sync_playwright() as playwright:
+        try:
+            browser = playwright.chromium.launch()
+        except Exception as exc:
+            pytest.skip("chromium is not installed: %s" % exc)
+        context = browser.new_context(
+            viewport={"width": 390, "height": 844}, device_scale_factor=3,
+            is_mobile=True, has_touch=True,
+        )
+        page = context.new_page()
+        errors = []
+        page.on("pageerror", lambda error: errors.append(str(error)))
+        yield page
+        browser.close()
+        assert not errors, "javascript errors: %s" % errors
+
+
+def test_the_app_fits_a_phone_screen(tmp_path, phone):
+    fake = FakeImmich()
+    fake.add_album("Lake", [fake.add_asset("lake.jpg", 3000, 2000), fake.add_asset("dock.jpg", 2000, 3000)])
+
+    with FakeImmichServer(fake) as immich:
+        config_path = tmp_path / "config.yaml"
+        config_path.write_text(
+            "immich_url: %s\ndata_dir: %s\nusers:\n  - colin\n" % (immich.url, tmp_path / "data"),
+            encoding="utf-8",
+        )
+        with AppServer(create_app(load_config(str(config_path)))) as app:
+            phone.goto(app.url)
+            phone.wait_for_url("**/login")
+            phone.fill("#username", "colin")
+            phone.click("#submit")
+            phone.wait_for_selector("text=Choose a password")
+            phone.fill("#new-password", "print-me-please")
+            phone.fill("#confirm-password", "print-me-please")
+            phone.click("#submit")
+            phone.wait_for_url(app.url + "/")
+            # The settings dialog is hard to tap on a small screen; store the key directly.
+            phone.request.put(app.url + "/api/settings", data={"api_key": API_KEY})
+            phone.reload()
+
+            sideways = "() => document.documentElement.scrollWidth - document.documentElement.clientWidth"
+            phone.wait_for_selector(".album-card")
+            assert phone.evaluate(sideways) == 0, "the library scrolls sideways"
+
+            phone.click(".album-card")
+            phone.wait_for_selector(".asset")
+            phone.click("#btn-add-everything")
+            phone.wait_for_selector("#set-count:text('2')")
+            phone.click("#tab-set")
+            phone.wait_for_selector(".set-card img")
+            assert phone.evaluate(sideways) == 0, "the print set scrolls sideways"
+
+            # The bar above Prepare stays out of the way until it is opened.
+            assert phone.evaluate("() => !document.querySelector('#set-record details').open")
+            assert "no album" in phone.locator("#set-record summary").inner_text()
+            share = phone.evaluate(
+                "() => document.querySelector('#set-actions').getBoundingClientRect().height"
+                " / window.innerHeight"
+            )
+            assert share < 0.3, "the action bar takes %d%% of the screen" % round(share * 100)
+
+            phone.locator("#set-record summary").click()
+            assert phone.evaluate("() => document.querySelector('#set-record details').open")
+            assert phone.evaluate(sideways) == 0, "the opened options scroll sideways"

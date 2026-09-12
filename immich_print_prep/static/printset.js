@@ -530,12 +530,16 @@ function buildRecordOptions() {
         onClick: () => { recordEdited = false; syncRecord(); },
     }, "Use my defaults");
 
-    clear($("#set-record")).append(
-        el("div", { class: "record-head" }, el("span", { class: "small muted" }, "Record this set in Immich"), reset),
-        album.node,
-        tag.node,
+    const state = el("span", { class: "muted small" }, "");
+    const details = el("details", {},
+        el("summary", {}, el("span", { class: "small" }, "Record this set in Immich"), state),
+        el("div", { class: "record-body" }, album.node, tag.node, el("div", { class: "row" }, reset)),
     );
-    recordUi = { album, tag, reset };
+    // Open on a roomy screen; on a phone this bar would otherwise take half the
+    // page, and its summary already says what will happen.
+    details.open = window.matchMedia("(min-width: 700px)").matches;
+    clear($("#set-record")).append(details);
+    recordUi = { album, tag, reset, state };
 }
 
 function syncRecord() {
@@ -554,6 +558,8 @@ function syncRecord() {
         part.preview.textContent = on ? `→ ${previewName(template, store.selection.count)}` : "";
     }
     recordUi.reset.hidden = !recordEdited;
+    recordUi.state.textContent = "· %s · %s".replace("%s", record.create_album ? "album on" : "no album")
+        .replace("%s", record.create_tag ? "tag on" : "no tag");
 }
 
 // Mirrors render_name_template on the server, so the preview shows the name
