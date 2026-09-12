@@ -68,12 +68,15 @@ class FakeImmich:
         time_zone: Optional[str] = None,
         local_at: Optional[str] = None,
         place: Tuple[Optional[str], Optional[str], Optional[str]] = (None, None, None),
+        gear: Optional[Dict[str, Any]] = None,
         faces: Optional[List[Dict[str, Any]]] = None,
     ) -> str:
         """Add an asset. `original` overrides the stored file (e.g. camera raw
         this server cannot decode) while Immich still renders JPEGs for it.
 
-        `place` is the city, state and country Immich reverse-geocoded.
+        `place` is the city, state and country Immich reverse-geocoded, and
+        `gear` the camera exif keys (make, model, lensModel, focalLength,
+        fNumber, exposureTime).
 
         `faces` are dicts of name (None for unnamed), cx and optionally cy, w, h
         as fractions of the upright photo."""
@@ -94,6 +97,7 @@ class FakeImmich:
             "_exif": {
                 "description": description, "dateTimeOriginal": taken_at, "timeZone": time_zone,
                 "city": place[0], "state": place[1], "country": place[2],
+                **(gear or {}),
             },
             "_faces": list(faces or []),
         }

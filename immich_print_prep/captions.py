@@ -1,5 +1,5 @@
 """Caption text for prints: when and where a photo was taken, its description,
-and who is in it.
+who is in it, and what it was shot with.
 
 Everything here is pure except `resolve_source`, which asks Immich for the
 facts. Where the caption goes on the print, and drawing it, live in imaging.py.
@@ -43,6 +43,9 @@ class CaptionSource:
     capture: Optional[str] = None
     location: Optional[str] = None
     description: Optional[str] = None
+    # The two gear groups, printed right-aligned rather than as prose lines.
+    camera: Optional[str] = None
+    exposure: Optional[str] = None
     faces: List[Face] = field(default_factory=list)
     # From the face detector's image size; decides what "auto" rotation did.
     upright_landscape: Optional[bool] = None
@@ -139,6 +142,66 @@ def format_location(
         if text and text.casefold() not in [part.casefold() for part in parts]:
             parts.append(text)
     return ", ".join(parts) or None
+
+
+# ---------- camera and exposure ----------
+
+def _number(value: Any) -> Optional[float]:
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def format_camera(
+    make: Optional[str], model: Optional[str], lens: Optional[str]
+) -> Optional[str]:
+    """`Canon EOS R6 · RF24-70mm F2.8 L IS USM`, from whichever parts exist.
+
+    Only the brand word of the make is used, and only when the model does not
+    already carry it. EXIF makes are inconsistent about this: Canon writes
+    "Canon" / "Canon EOS R6" and Nikon "NIKON CORPORATION" / "NIKON Z 6", both
+    of which would read twice, while Sony writes "SONY" / "ILCE-7M4" and Apple
+    "Apple" / "iPhone 15 Pro", which need the brand to make sense.
+    """
+    make, model, lens = (str(part or "").strip() for part in (make, model, lens))
+    brand = make.split()[0] if make else ""
+    body = model
+    if brand and not model.casefold().startswith(brand.casefold()):
+        body = ("%s %s" % (brand, model)).strip()
+    return " · ".join(part for part in (body, lens) if part) or None
+
+
+def format_exposure(
+    focal_length: Any, f_number: Any, exposure_time: Any
+) -> Optional[str]:
+    """`50mm · f/2.8 · 1/250s`, from whichever settings the camera recorded."""
+    parts: List[str] = []
+    focal = _number(focal_length)
+    if focal:
+        parts.append("%gmm" % round(focal, 1))
+    aperture = _number(f_number)
+    if aperture:
+        parts.append("f/%g" % round(aperture, 1))
+    shutter = _format_shutter(exposure_time)
+    if shutter:
+        parts.append(shutter)
+    return " · ".join(parts) or None
+
+
+def _format_shutter(value: Any) -> Optional[str]:
+    """`1/250s` or `1.3s`. Immich reports either a fraction or a bare number."""
+    text = str(value or "").strip()
+    if not text:
+        return None
+    if "/" in text:
+        return "%ss" % text.replace(" ", "")
+    seconds = _number(text)
+    if seconds is None or seconds <= 0:
+        return None
+    if seconds >= 1:
+        return "%gs" % round(seconds, 1)
+    return "1/%ds" % round(1 / seconds)
 
 
 # ---------- people ----------
@@ -244,17 +307,35 @@ def caption_parts(source: CaptionSource, adj: Any) -> Dict[str, Optional[str]]:
         "location": source.location if adj.caption_location else None,
         "description": description,
         "people": people,
+        "camera": source.camera if adj.caption_gear else None,
+        "exposure": source.exposure if adj.caption_gear else None,
     }
 
 
 def compose(source: CaptionSource, adj: Any) -> str:
-    """The caption to print: the user's own text if they wrote one, else the
-    parts of Immich's data they switched on, one per line."""
+    """The prose of the caption: the user's own text if they wrote one, else the
+    parts of Immich's data they switched on, one per line.
+
+    The gear groups are not in here. They are printed right-aligned on the same
+    rows (see `compose_gear`), so they cost the photo no height and a rewritten
+    caption does not take them away.
+    """
     if adj.caption_text is not None:
         return adj.caption_text.strip()
     parts = caption_parts(source, adj)
     lines = (parts["capture"], parts["location"], parts["description"], parts["people"])
     return "\n".join(line for line in lines if line)
+
+
+def compose_gear(source: CaptionSource, adj: Any) -> Tuple[str, ...]:
+    """What the photo was shot with, as groups the layout may split or drop.
+
+    Unlike the prose this survives a hand-written caption: the user rewrites
+    what the photo is, not what took it.
+    """
+    if not adj.caption_gear:
+        return ()
+    return tuple(group for group in (source.camera, source.exposure) if group)
 
 
 async def resolve_source(client: ImmichClient, asset_id: str) -> CaptionSource:
@@ -276,6 +357,12 @@ async def resolve_source(client: ImmichClient, asset_id: str) -> CaptionSource:
     )
     source.location = format_location(
         details.get("city"), details.get("state"), details.get("country")
+    )
+    source.camera = format_camera(
+        details.get("make"), details.get("model"), details.get("lensModel")
+    )
+    source.exposure = format_exposure(
+        details.get("focalLength"), details.get("fNumber"), details.get("exposureTime")
     )
     source.description = (details.get("description") or "").strip() or None
     source.names = [

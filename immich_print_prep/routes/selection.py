@@ -9,7 +9,7 @@ from typing import Any, Dict, List, Optional
 from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 from pydantic import BaseModel, Field
 
-from ..captions import CaptionSource, caption_parts, compose, resolve_source
+from ..captions import CaptionSource, caption_parts, compose, compose_gear, resolve_source
 from ..context import AppContext
 from ..deps import current_user, get_ctx, immich_client, require_json
 from ..imaging import (
@@ -232,7 +232,7 @@ def _query_overrides(
     height_in: Optional[float], background: Optional[str], crop: Optional[str],
     caption: Optional[bool] = None, caption_date: Optional[bool] = None,
     caption_location: Optional[bool] = None, caption_description: Optional[bool] = None,
-    caption_people: Optional[bool] = None,
+    caption_people: Optional[bool] = None, caption_gear: Optional[bool] = None,
     caption_text: Optional[str] = None, caption_auto: Optional[bool] = None,
 ) -> Dict[str, Any]:
     overrides: Dict[str, Any] = {}
@@ -244,7 +244,7 @@ def _query_overrides(
             overrides[key] = value
     for key, flag in (
         ("caption", caption), ("caption_date", caption_date),
-        ("caption_location", caption_location),
+        ("caption_location", caption_location), ("caption_gear", caption_gear),
         ("caption_description", caption_description), ("caption_people", caption_people),
     ):
         if flag is not None:
@@ -300,6 +300,7 @@ async def preview_asset(
     caption_location: Optional[bool] = Query(default=None),
     caption_description: Optional[bool] = Query(default=None),
     caption_people: Optional[bool] = Query(default=None),
+    caption_gear: Optional[bool] = Query(default=None),
     caption_text: Optional[str] = Query(default=None, max_length=1000),
     caption_auto: Optional[bool] = Query(default=None),
     max_edge: int = Query(default=700, ge=100, le=2000),
@@ -310,17 +311,19 @@ async def preview_asset(
     overrides = _query_overrides(
         rotate, fit, width_in, height_in, background, crop,
         caption, caption_date, caption_location, caption_description, caption_people,
-        caption_text, caption_auto,
+        caption_gear, caption_text, caption_auto,
     )
     adj = _adjustments_from_query(ctx, username, asset_id, overrides)
     data = await _source_bytes(ctx, username, asset_id)
-    text = None
+    text, gear = None, ()
     if adj.caption:
-        text = compose(await _caption_source(ctx, username, asset_id), adj) or None
+        source = await _caption_source(ctx, username, asset_id)
+        text = compose(source, adj) or None
+        gear = compose_gear(source, adj)
     loop = asyncio.get_event_loop()
     try:
         rendered = await loop.run_in_executor(
-            ctx.executor, render_preview, data, adj, max_edge, text
+            ctx.executor, render_preview, data, adj, max_edge, text, gear
         )
     except (ImagingError, OSError) as exc:
         raise HTTPException(
@@ -341,6 +344,7 @@ async def asset_caption(
     caption_location: Optional[bool] = Query(default=None),
     caption_description: Optional[bool] = Query(default=None),
     caption_people: Optional[bool] = Query(default=None),
+    caption_gear: Optional[bool] = Query(default=None),
     caption_text: Optional[str] = Query(default=None, max_length=1000),
     caption_auto: Optional[bool] = Query(default=None),
     username: str = Depends(current_user),
@@ -354,7 +358,7 @@ async def asset_caption(
     overrides = _query_overrides(
         rotate, None, None, None, None, crop,
         None, caption_date, caption_location, caption_description, caption_people,
-        caption_text, caption_auto,
+        caption_gear, caption_text, caption_auto,
     )
     adj = _adjustments_from_query(ctx, username, asset_id, overrides)
     source = await _caption_source(ctx, username, asset_id, fresh=True)
@@ -364,6 +368,9 @@ async def asset_caption(
         "override": adj.caption_text,
         "caption": compose(source, adj),
         "parts": caption_parts(source, from_immich),
+        # Its own column, so it is not in any of the strings above: a rewritten
+        # caption keeps it, and the editor shows it beside the text box.
+        "gear": list(compose_gear(source, adj)),
         "notes": source.notes,
     }
 

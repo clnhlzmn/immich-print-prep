@@ -192,6 +192,45 @@ def test_an_overlong_caption_is_cut_off_rather_than_shrinking_the_photo_further(
     assert layout.strip <= 450                                    # 1.5 inches at 300 dpi
 
 
+# ---------- gear, right-aligned ----------
+
+GEAR = ("Canon EOS R6 · RF24-70mm F2.8 L IS USM", "50mm · f/2.8 · 1/250s")
+
+
+def test_gear_costs_the_photo_nothing_on_a_print_with_room():
+    """The point of the right-aligned column: it uses the run the prose leaves."""
+    bare = layout_caption(PORTRAIT_2X3, PAPER_8X10, MEDIUM, 300)
+    with_gear = layout_caption(PORTRAIT_2X3, PAPER_8X10, MEDIUM, 300, gear=GEAR)
+    assert with_gear.photo_box == bare.photo_box
+    assert with_gear.strip == bare.strip
+    assert len(with_gear.right_lines) == 1        # both groups on one row
+
+
+def test_a_cramped_print_splits_the_gear_before_it_takes_a_new_row():
+    # A 4x6 leaves far less run, so the groups take a row each - still fewer
+    # rows than the prose, so the photo is no worse off.
+    layout = layout_caption(PORTRAIT_2X3, PAPER_4X6, MEDIUM, 300, gear=GEAR)
+    assert layout.right_lines == GEAR
+    assert len(layout.right_lines) <= len(layout.lines)
+    assert layout.strip == layout_caption(PORTRAIT_2X3, PAPER_4X6, MEDIUM, 300).strip
+
+
+def test_gear_alone_captions_a_photo_with_no_prose():
+    layout = layout_caption(PORTRAIT_2X3, PAPER_8X10, "", 300, gear=GEAR)
+    assert layout.lines == () and len(layout.right_lines) == 1
+
+
+def test_gear_is_refitted_against_a_caption_that_had_to_be_cut_off():
+    layout = layout_caption(PORTRAIT_2X3, PAPER_8X10, LONG, 300, gear=GEAR)
+    assert layout.truncated
+    assert len(layout.right_lines) <= len(layout.lines)
+
+
+def test_a_proof_keeps_the_gear_column_too():
+    full = layout_caption(PORTRAIT_2X3, PAPER_8X10, MEDIUM, 300, gear=GEAR)
+    assert full.scaled(0.25).right_lines == full.right_lines
+
+
 def test_a_proof_wraps_the_caption_exactly_like_the_print():
     full = layout_caption(PORTRAIT_2X3, PAPER_8X10, MEDIUM, 300)
     assert full.scaled(0.25).lines == full.lines

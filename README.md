@@ -179,8 +179,21 @@ or one photo's Adjust dialog) to print up to four lines beside each photo:
   "from left to right". Needs the `face.read` permission to know the order;
   without it the same line lists the names in no particular order.
 
+Plus one more, printed differently:
+
+- **Camera & exposure** — `Canon EOS R6 · RF24-70mm F2.8 L IS USM · 50mm ·
+  f/2.8 · 1/250s`, from the EXIF Immich read. This one is **right-aligned**,
+  sharing the rows the four lines above already occupy, because those lines use
+  only the first few inches of a band that runs the whole edge of the print. On
+  an 8×10 it costs the photo nothing at all. Where the run is shorter — a 4×6,
+  or a long description — the body and the exposure split onto two rows, still
+  inside the rows the prose uses. Only a photo with almost no caption can be
+  made taller by it.
+
 In any photo's Adjust dialog you can rewrite its caption for that print only;
-**Use Immich's text** puts the generated one back.
+**Use Immich's text** puts the generated one back. Rewriting the text replaces
+the four lines, not the camera column — you are saying what the photo is, not
+what took it — so switch **Camera & exposure** off if you want it gone.
 
 **Where it goes.** The caption sits in the border padding already leaves, so in
 the common case the photo keeps its full size. For a 2:3 photo on 8×10 that is

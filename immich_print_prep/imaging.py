@@ -17,7 +17,7 @@ import re
 from dataclasses import asdict, dataclass, replace
 from functools import lru_cache
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 from PIL import Image, ImageCms, ImageDraw, ImageFont, ImageOps, UnidentifiedImageError
 
@@ -176,6 +176,7 @@ class Adjustments:
     caption: bool = False
     caption_date: bool = True
     caption_location: bool = True
+    caption_gear: bool = True
     caption_description: bool = True
     caption_people: bool = True
     caption_text: Optional[str] = None
@@ -242,6 +243,7 @@ class Adjustments:
             caption=flag("caption", adj.caption),
             caption_date=flag("caption_date", adj.caption_date),
             caption_location=flag("caption_location", adj.caption_location),
+            caption_gear=flag("caption_gear", adj.caption_gear),
             caption_description=flag("caption_description", adj.caption_description),
             caption_people=flag("caption_people", adj.caption_people),
             caption_text=caption_text,
@@ -424,6 +426,38 @@ def _truncate(
     return kept, True
 
 
+def _fit_gear(
+    groups: Sequence[str], left: Sequence[str], font, line_width: int
+) -> Tuple[str, ...]:
+    """The fullest arrangement of the gear groups that fits beside the prose.
+
+    Each gear line is right-aligned on the row of the prose line with the same
+    index, so it uses the run of empty paper the short prose lines leave rather
+    than a row of its own. Tried in order, first that fits wins: everything on
+    one row, a row per group, then the exposure alone - completeness before
+    compactness, so a long lens name costs a row rather than being dropped.
+
+    A row past the end of the prose has the full width to itself; that does add
+    height, and only happens when the prose has fewer lines than the gear.
+    """
+    groups = [group for group in groups if group]
+    if not groups:
+        return ()
+    separator = font.getlength("  ")
+
+    def fits(candidate: Sequence[str]) -> bool:
+        for index, line in enumerate(candidate):
+            taken = font.getlength(left[index]) + separator if index < len(left) else 0
+            if font.getlength(line) > line_width - taken:
+                return False
+        return True
+
+    for candidate in ((" · ".join(groups),), tuple(groups), (groups[-1],)):
+        if fits(candidate):
+            return tuple(candidate)
+    return ()
+
+
 @dataclass(frozen=True)
 class CaptionLayout:
     """Where the photo and its caption go on the canvas."""
@@ -433,6 +467,8 @@ class CaptionLayout:
     edge: str                              # right | left | bottom | top
     strip: int                             # caption strip: photo edge to paper edge
     lines: Tuple[str, ...]
+    # Gear, right-aligned on the same rows as `lines` so it costs no height.
+    right_lines: Tuple[str, ...]
     font_px: int
     line_height: int
     edge_px: int
@@ -477,6 +513,7 @@ def _layout_along(
     dpi: float,
     turns: int,
     allow_enlarge: bool,
+    gear: Sequence[str] = (),
 ) -> CaptionLayout:
     """Fit the caption on one pair of edges: down the sides, or along the ends."""
     width, height = canvas
@@ -502,21 +539,28 @@ def _layout_along(
     def measure(point_size: float):
         font_px = max(1, int(round(point_size / 72.0 * dpi)))
         line_height = max(1, int(round(font_px * CAPTION_LINE_SPACING)))
-        lines = _wrap(text, _caption_font(font_px), line_width)
-        return font_px, line_height, lines, edge_px + gap_px + len(lines) * line_height
+        font = _caption_font(font_px)
+        lines = _wrap(text, font, line_width)
+        right = _fit_gear(gear, lines, font, line_width)
+        rows = max(len(lines), len(right))
+        return font_px, line_height, lines, right, edge_px + gap_px + rows * line_height
 
     point_size = CAPTION_FONT_PT
-    font_px, line_height, lines, need = measure(point_size)
+    font_px, line_height, lines, right_lines, need = measure(point_size)
     while need > space and point_size > CAPTION_MIN_FONT_PT:
         point_size = max(CAPTION_MIN_FONT_PT, point_size - 0.5)
-        font_px, line_height, lines, need = measure(point_size)
+        font_px, line_height, lines, right_lines, need = measure(point_size)
 
     truncated = False
     limit = max(max_strip, space)
     if need > limit:
-        max_lines = max(1, (limit - edge_px - gap_px) // line_height)
-        lines, truncated = _truncate(lines, max_lines, _caption_font(font_px), line_width)
-        need = edge_px + gap_px + len(lines) * line_height
+        max_rows = max(1, (limit - edge_px - gap_px) // line_height)
+        font = _caption_font(font_px)
+        lines, truncated = _truncate(lines, max_rows, font, line_width)
+        # The prose just moved, so the gear has to be re-fitted against it, and
+        # cut to the rows that are left.
+        right_lines = _fit_gear(gear, lines, font, line_width)[:max_rows]
+        need = edge_px + gap_px + max(len(lines), len(right_lines)) * line_height
 
     if need <= space:
         photo_w, photo_h = fit_w, fit_h
@@ -556,6 +600,7 @@ def _layout_along(
         edge=edge,
         strip=strip,
         lines=tuple(lines),
+        right_lines=tuple(right_lines),
         font_px=font_px,
         line_height=line_height,
         edge_px=edge_px,
@@ -572,6 +617,7 @@ def layout_caption(
     dpi: float,
     turns: int = 0,
     allow_enlarge: bool = True,
+    gear: Sequence[str] = (),
 ) -> CaptionLayout:
     """Place a caption so the photo stays as large as possible.
 
@@ -589,10 +635,14 @@ def layout_caption(
     """
     fit_w, fit_h = _fit_within(photo_size, canvas, allow_enlarge)
     natural_sides = canvas[0] - fit_w >= canvas[1] - fit_h
-    preferred = _layout_along(natural_sides, photo_size, canvas, text, dpi, turns, allow_enlarge)
+    preferred = _layout_along(
+        natural_sides, photo_size, canvas, text, dpi, turns, allow_enlarge, gear
+    )
     if preferred.step != "shrunk":
         return preferred
-    other = _layout_along(not natural_sides, photo_size, canvas, text, dpi, turns, allow_enlarge)
+    other = _layout_along(
+        not natural_sides, photo_size, canvas, text, dpi, turns, allow_enlarge, gear
+    )
     if other.step != "shrunk":
         return other
 
@@ -628,6 +678,13 @@ def _draw_caption(photo: Image.Image, layout: CaptionLayout, background) -> Imag
             (layout.edge_px, layout.gap_px + index * layout.line_height),
             line, font=font, fill=colour,
         )
+    # Gear hugs the far end of the band, on the rows the prose already occupies.
+    for index, line in enumerate(layout.right_lines):
+        draw.text(
+            (run - layout.edge_px - font.getlength(line),
+             layout.gap_px + index * layout.line_height),
+            line, font=font, fill=colour,
+        )
     if layout.edge == "right":
         canvas.paste(band.transpose(Image.Transpose.ROTATE_90), (width - strip, 0))
     elif layout.edge == "left":
@@ -640,7 +697,8 @@ def _draw_caption(photo: Image.Image, layout: CaptionLayout, background) -> Imag
 
 
 def render(
-    source: Image.Image, adj: Adjustments, scale: float = 1.0, caption: Optional[str] = None
+    source: Image.Image, adj: Adjustments, scale: float = 1.0, caption: Optional[str] = None,
+    gear: Sequence[str] = (),
 ) -> Image.Image:
     """Run the pipeline and return the finished RGB image.
 
@@ -658,11 +716,12 @@ def render(
         image = _apply_crop(image, adj.crop)
 
     text = (caption or "").strip()
-    if text:
+    gear = tuple(group for group in gear if group)
+    if text or gear:
         # Laid out at full print resolution so a proof wraps exactly like the file.
         layout = layout_caption(
             image.size, adj.target_pixels(), text, adj.dpi,
-            _quarter_turns(adj.rotate, upright_landscape), adj.allow_enlarge,
+            _quarter_turns(adj.rotate, upright_landscape), adj.allow_enlarge, gear,
         )
         if scale != 1.0:
             layout = layout.scaled(scale)
@@ -694,21 +753,24 @@ def encode(image: Image.Image, adj: Adjustments) -> bytes:
     return buf.getvalue()
 
 
-def prepare(data: bytes, adj: Adjustments, caption: Optional[str] = None) -> bytes:
+def prepare(
+    data: bytes, adj: Adjustments, caption: Optional[str] = None, gear: Sequence[str] = ()
+) -> bytes:
     """Render and encode raw source bytes in one step."""
     with open_image(data) as source:
-        rendered = render(source, adj, caption=caption)
+        rendered = render(source, adj, caption=caption, gear=gear)
     return encode(rendered, adj)
 
 
 def preview(
-    data: bytes, adj: Adjustments, max_edge: int = 900, caption: Optional[str] = None
+    data: bytes, adj: Adjustments, max_edge: int = 900, caption: Optional[str] = None,
+    gear: Sequence[str] = (),
 ) -> bytes:
     """Render a small, fast, visually identical proof of `prepare`."""
     target_w, target_h = adj.target_pixels()
     scale = min(1.0, max_edge / max(target_w, target_h))
     with open_image(data) as source:
-        rendered = render(source, adj, scale=scale, caption=caption)
+        rendered = render(source, adj, scale=scale, caption=caption, gear=gear)
     buf = io.BytesIO()
     rendered.save(buf, format="JPEG", quality=82, optimize=True)
     return buf.getvalue()

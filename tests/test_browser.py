@@ -239,6 +239,8 @@ def test_a_caption_can_be_rewritten_for_one_print(tmp_path, page):
         taken_at="2026-07-04T19:30:05.000Z",
         time_zone="America/Chicago",
         place=("Austin", "Texas", "United States"),
+        gear={"make": "Canon", "model": "Canon EOS R6", "focalLength": 50,
+              "fNumber": 2.8, "exposureTime": "1/250"},
         faces=[{"name": "Alice", "cx": 0.25}, {"name": "Bob", "cx": 0.75}],
     )
     fake.add_album("Lake", [photo])
@@ -278,6 +280,10 @@ def test_a_caption_can_be_rewritten_for_one_print(tmp_path, page):
                 "\nFourth of July at the lake\nIn this photo: Alice, Bob"
             )
 
+            # Gear is a column of its own, shown beside the box, not in it.
+            assert "Canon EOS R6" not in box.input_value()
+            assert "Canon EOS R6 · 50mm · f/2.8 · 1/250s" in editor.inner_text()
+
             # Unticking a part drops its line, leaving the rest in order.
             editor.get_by_label("Location").uncheck()
             page.wait_for_function(
@@ -297,6 +303,7 @@ def test_a_caption_can_be_rewritten_for_one_print(tmp_path, page):
             with zipfile.ZipFile(download_info.value.path()) as archive:
                 manifest = archive.read("print-set-manifest.txt").decode()
             assert "caption: Lake day with Alice and Bob" in manifest
+            assert "gear: Canon EOS R6 · 50mm · f/2.8 · 1/250s" in manifest
 
 
 def test_a_print_can_be_opened_larger_from_the_print_set(tmp_path, page):

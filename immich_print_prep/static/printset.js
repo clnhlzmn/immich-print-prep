@@ -262,10 +262,14 @@ async function openEditor(item) {
             refreshProof();
         },
     }, "Use Immich's text");
+    // Gear is printed right-aligned as its own column, so it is not in the box
+    // above and rewriting the text does not take it away.
+    const gearNote = el("p", { class: "small muted", style: { margin: 0 } });
     const captionField = el("fieldset", {},
         el("legend", {}, "Caption on this print"),
         captionBox,
         el("div", { class: "row", style: { marginTop: "6px" } }, captionReset),
+        gearNote,
         captionNote,
     );
     const syncCaption = () => {
@@ -279,6 +283,7 @@ async function openEditor(item) {
         caption_location: values.caption_location,
         caption_description: values.caption_description,
         caption_people: values.caption_people,
+        caption_gear: values.caption_gear,
         ...(captionOverride === null
             ? { caption_auto: true }
             : { caption_text: captionOverride === "" ? " " : captionOverride }),
@@ -292,6 +297,9 @@ async function openEditor(item) {
             });
             captionAuto = info.auto;
             if (captionOverride === null) captionBox.value = info.auto;
+            const gear = (info.gear || []).join(" · ");
+            gearNote.textContent = gear ? `Also printed, right-aligned: ${gear}` : "";
+            gearNote.hidden = !gear;
             captionNote.textContent = info.notes.join(" ");
         } catch (error) {
             captionNote.textContent = error.message;

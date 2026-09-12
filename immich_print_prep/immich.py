@@ -260,6 +260,12 @@ class ImmichClient:
             "city": exif.get("city"),
             "state": exif.get("state"),
             "country": exif.get("country"),
+            "make": exif.get("make"),
+            "model": exif.get("model"),
+            "lensModel": exif.get("lensModel"),
+            "focalLength": exif.get("focalLength"),
+            "fNumber": exif.get("fNumber"),
+            "exposureTime": exif.get("exposureTime"),
             "people": [
                 {"name": person.get("name"), "isHidden": bool(person.get("isHidden"))}
                 for person in raw.get("people") or []

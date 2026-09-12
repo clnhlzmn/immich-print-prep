@@ -476,6 +476,8 @@ def captioned(immich):
         taken_at="2026-07-04T19:30:05.000Z",
         time_zone="America/Chicago",
         place=("Austin", "Texas", "United States"),
+        gear={"make": "Canon", "model": "Canon EOS R6", "lensModel": "RF24-70mm F2.8 L IS USM",
+              "focalLength": 50, "fNumber": 2.8, "exposureTime": "1/250"},
         faces=[{"name": "Bob", "cx": 0.70}, {"name": "Alice", "cx": 0.20}, {"name": None, "cx": 0.45}],
     )
 
@@ -495,6 +497,7 @@ def test_a_caption_is_built_from_immich_and_printed_in_the_border(signed_in, cap
     assert (
         "caption: 2026-07-04 14:30:05 CDT / Austin, Texas, United States"
         " / Fourth of July at the lake / In this photo: Alice, Bob"
+        "\tgear: Canon EOS R6 · RF24-70mm F2.8 L IS USM · 50mm · f/2.8 · 1/250s"
     ) in manifest
     assert job["detail"]["caption_notes"] == []
 
@@ -507,7 +510,37 @@ def test_a_caption_is_built_from_immich_and_printed_in_the_border(signed_in, cap
 
 def test_the_users_own_caption_replaces_immichs(signed_in, captioned):
     _, archive = _prepare_one(signed_in, captioned, caption=True, caption_text="Lake day")
-    assert "caption: Lake day\n" in archive.read("print-set-manifest.txt").decode() + "\n"
+    manifest = archive.read("print-set-manifest.txt").decode()
+    assert "caption: Lake day" in manifest
+    assert "Fourth of July at the lake" not in manifest
+
+
+def test_gear_prints_at_the_far_end_of_the_caption_band(signed_in, captioned):
+    """Right-aligned, so it costs the photo no room: same geometry either way."""
+    _, plain = _prepare_one(signed_in, captioned, caption=True, caption_gear=False)
+    signed_in.post("/api/selection/clear", json={})
+    _, geared = _prepare_one(signed_in, captioned, caption=True)
+
+    def photo(archive):
+        name = next(n for n in archive.namelist() if n.endswith(".jpg"))
+        return Image.open(io.BytesIO(archive.read(name))).convert("RGB")
+
+    without, with_gear = photo(plain), photo(geared)
+    assert without.size == with_gear.size == (2400, 3000)
+    # The band is turned to run up the right edge, so the prose reads from the
+    # bottom and the far end of its first row is the top. That corner is blank
+    # without gear, and inked with it.
+    tail = (2140, 60, 2400, 900)
+    assert min(min(px) for px in without.crop(tail).getdata()) > 240
+    assert min(min(px) for px in with_gear.crop(tail).getdata()) < 100
+    # ...and the photo has not moved to make room.
+    assert min(min(px) for px in with_gear.crop((5, 60, 120, 2940)).getdata()) > 240
+
+
+def test_the_gear_line_survives_a_caption_the_user_rewrote(signed_in, captioned):
+    _, archive = _prepare_one(signed_in, captioned, caption=True, caption_text="Lake day")
+    manifest = archive.read("print-set-manifest.txt").decode()
+    assert "caption: Lake day\tgear: Canon EOS R6" in manifest
 
 
 def test_a_caption_part_switched_off_is_left_out(signed_in, captioned):
@@ -515,7 +548,7 @@ def test_a_caption_part_switched_off_is_left_out(signed_in, captioned):
         signed_in, captioned, caption=True, caption_location=False, caption_people=False,
     )
     manifest = archive.read("print-set-manifest.txt").decode()
-    assert "caption: 2026-07-04 14:30:05 CDT / Fourth of July at the lake\n" in manifest + "\n"
+    assert "caption: 2026-07-04 14:30:05 CDT / Fourth of July at the lake\t" in manifest
 
 
 def test_no_caption_unless_switched_on(signed_in, captioned):
@@ -541,6 +574,9 @@ def test_the_editor_gets_immichs_caption_with_crop_and_rotation_applied(signed_i
     assert info["override"] is None
     assert info["parts"]["capture"] == "2026-07-04 14:30:05 CDT"
     assert info["parts"]["location"] == "Austin, Texas, United States"
+    assert info["gear"] == [
+        "Canon EOS R6 · RF24-70mm F2.8 L IS USM", "50mm · f/2.8 · 1/250s",
+    ]
 
     # The landscape photo is turned counter-clockwise, so its left side is the
     # bottom of the image the crop box is drawn on: cropping to that keeps Alice

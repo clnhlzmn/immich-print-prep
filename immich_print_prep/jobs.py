@@ -11,7 +11,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
-from .captions import compose, resolve_source
+from .captions import compose, compose_gear, resolve_source
 from .context import AppContext, Prefs, render_name_template
 from .imaging import Adjustments, ImagingError, UnsupportedImageError, prepare
 from .immich import BulkResult, ImmichClient, ImmichError
@@ -69,13 +69,14 @@ async def run_prepare_job(
 
     async def one(
         index: int, item: Dict[str, Any]
-    ) -> Optional[Tuple[int, str, bytes, Adjustments, bool, Optional[str]]]:
+    ) -> Optional[Tuple[int, str, bytes, Adjustments, bool, Optional[str], Tuple[str, ...]]]:
         asset_id = item["asset_id"]
         info = item.get("info") or {}
         adj = item["adjustments"]
         label = info.get("filename") or asset_id
         from_rendition = False
         caption: Optional[str] = None
+        gear: Tuple[str, ...] = ()
         try:
             async with semaphore:
                 if adj.caption:
@@ -83,17 +84,22 @@ async def run_prepare_job(
                     # proof was drawn still makes it onto the print.
                     source = await resolve_source(client, asset_id)
                     caption = compose(source, adj) or None
+                    gear = compose_gear(source, adj)
                     caption_notes.extend(source.notes)
                 data = await client.original(asset_id)
             try:
-                rendered = await loop.run_in_executor(ctx.executor, prepare, data, adj, caption)
+                rendered = await loop.run_in_executor(
+                    ctx.executor, prepare, data, adj, caption, gear
+                )
             except UnsupportedImageError:
                 # Camera raw, or HEIC on a build without HEIF support: Immich
                 # already keeps a JPEG of every asset, so print that instead of
                 # dropping the photo from the set.
                 async with semaphore:
                     data = await client.rendition(asset_id)
-                rendered = await loop.run_in_executor(ctx.executor, prepare, data, adj, caption)
+                rendered = await loop.run_in_executor(
+                    ctx.executor, prepare, data, adj, caption, gear
+                )
                 from_rendition = True
         except ImmichError as exc:
             failures.append((label, exc.message))
@@ -103,7 +109,7 @@ async def run_prepare_job(
             return None
         stem = safe_stem(label)
         name = "%03d-%s%s" % (index + 1, stem, adj.extension())
-        return index, name, rendered, adj, from_rendition, caption
+        return index, name, rendered, adj, from_rendition, caption, gear
 
     used_names = set()
     try:
@@ -114,7 +120,7 @@ async def run_prepare_job(
                     result = await future
                     done += 1
                     if result is not None:
-                        index, name, data, adj, from_rendition, caption = result
+                        index, name, data, adj, from_rendition, caption, gear = result
                         while name in used_names:  # two sources with one name
                             stem, _, ext = name.rpartition(".")
                             name = "%s_%d.%s" % (stem, index, ext)
@@ -126,7 +132,7 @@ async def run_prepare_job(
                         if from_rendition:
                             renditions.append(name)
                         manifest.append(
-                            "%s\t%s\t%.10gx%.10g in @ %d dpi\t%s\t%s%s%s"
+                            "%s\t%s\t%.10gx%.10g in @ %d dpi\t%s\t%s%s%s%s"
                             % (
                                 name,
                                 items[index]["info"].get("filename") or items[index]["asset_id"],
@@ -135,6 +141,7 @@ async def run_prepare_job(
                                 items[index]["asset_id"],
                                 "\tfrom Immich JPEG rendition" if from_rendition else "",
                                 "\tcaption: %s" % caption.replace("\n", " / ") if caption else "",
+                                "\tgear: %s" % " · ".join(gear) if gear else "",
                             )
                         )
                     ctx.db.update_job(
