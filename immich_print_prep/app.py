@@ -23,6 +23,22 @@ log = logging.getLogger(__name__)
 STATIC_DIR = Path(__file__).parent / "static"
 HOUSEKEEPING_SECONDS = 600
 
+# The front end is unversioned ES modules, so a browser given no caching
+# directive invents one: it guesses a freshness lifetime from the file's age and
+# serves a stale copy without asking. That hands people a half-updated UI after
+# a deploy. "no-cache" means "revalidate before use", not "do not store" - the
+# ETag turns each check into a 304 with no body.
+REVALIDATE = "no-cache"
+
+
+class _Revalidating(StaticFiles):
+    """Static files the browser must check with us before reusing."""
+
+    def file_response(self, *args, **kwargs):
+        response = super().file_response(*args, **kwargs)
+        response.headers["Cache-Control"] = REVALIDATE
+        return response
+
 
 def create_app(config: Optional[Config] = None) -> FastAPI:
     config = config or load_config()
@@ -59,7 +75,7 @@ def create_app(config: Optional[Config] = None) -> FastAPI:
     app.include_router(browse.router)
     app.include_router(selection.router)
     app.include_router(jobs.router)
-    app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
+    app.mount("/static", _Revalidating(directory=str(STATIC_DIR)), name="static")
 
     def _signed_in(request: Request) -> bool:
         token = request.cookies.get(SESSION_COOKIE)
@@ -72,13 +88,13 @@ def create_app(config: Optional[Config] = None) -> FastAPI:
     def index(request: Request):
         if not _signed_in(request):
             return RedirectResponse("/login", status_code=303)
-        return FileResponse(STATIC_DIR / "index.html")
+        return FileResponse(STATIC_DIR / "index.html", headers={"Cache-Control": REVALIDATE})
 
     @app.get("/login", include_in_schema=False)
     def login_page(request: Request):
         if _signed_in(request):
             return RedirectResponse("/", status_code=303)
-        return FileResponse(STATIC_DIR / "login.html")
+        return FileResponse(STATIC_DIR / "login.html", headers={"Cache-Control": REVALIDATE})
 
     @app.get("/healthz", include_in_schema=False)
     def healthz():

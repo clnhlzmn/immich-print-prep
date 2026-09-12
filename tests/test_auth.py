@@ -95,3 +95,19 @@ def test_mutations_require_a_json_content_type(signed_in):
         "/api/selection/clear", content="ids=1", headers={"Content-Type": "application/x-www-form-urlencoded"}
     )
     assert response.status_code == 415
+
+
+def test_the_front_end_is_revalidated_rather_than_cached_blind(client, signed_in):
+    """An unversioned module a browser caches heuristically serves a stale UI."""
+    module = client.get("/static/controls.js")
+    assert module.status_code == 200
+    assert module.headers["cache-control"] == "no-cache"
+
+    # Cheap to obey: the ETag still answers the check with an empty 304.
+    again = client.get("/static/controls.js", headers={"If-None-Match": module.headers["etag"]})
+    assert again.status_code == 304
+    assert not again.content
+
+    # The shells that load those modules must revalidate too.
+    assert signed_in.get("/").headers["cache-control"] == "no-cache"
+    assert client.get("/login").headers["cache-control"] == "no-cache"
